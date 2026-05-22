@@ -12,6 +12,12 @@ No racing particles. No visual panic. Just flow.
 
 ---
 
+## Screenshot
+
+![Auri Ager Flow dashboard screenshot](Screenshot.png)
+
+---
+
 ## Design Philosophy
 
 Most energy dashboards try to visualize more power by increasing animation speed.  
@@ -142,7 +148,6 @@ Known follow-up work:
 - Improve theme support
 - Add optional layout polish for smaller cards
 - Prepare HACS structure
-- Add screenshots
 - Add release metadata
 
 ---
