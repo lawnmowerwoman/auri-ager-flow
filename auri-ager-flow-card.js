@@ -13,57 +13,126 @@ class AuriAgerFlowCard extends HTMLElement {
   };
 
   static THRESHOLD_W = 30;
+  static THRESHOLD_W_ZERO = 0;
 
   static LAYOUT = {
     viewBox: "0 0 600 600",
 
     autarky: {
-      x: 300,
-      y: 285,
+      x: 250,
+      y: 300,
       r: 78,
     },
 
     selfConsumption: {
-      x: 155,
-      y: 285,
+      x: 90,
+      y: 300,
       r: 40,
     },
 
     nodes: {
-      pv: { x: 145, y: 35 },
-      external: { x: 300, y: 35 },
-      grid: { x: 455, y: 35 },
+      pv: { x: 95, y: 50 },
+      external: { x: 250, y: 50 },
+      grid: { x: 405, y: 50 },
 
-      battery: { x: 145, y: 465 },
-      wallbox: { x: 300, y: 465 },
-      consumption: { x: 430, y: 465 },
+      battery: { x: 95, y: 480 },
+      wallbox: { x: 250, y: 480 },
+      consumption: { x: 380, y: 480 },
 
-      heatpump: { x: 545, y: 340 },
-      home: { x: 545, y: 465 },
+      heatpump: { x: 520, y: 355 },
+      home: { x: 520, y: 480 },
     },
   };
 
   static PATHS = {
-    pv: "M145 122 L145 158 Q145 178 165 178 L238 178",
-    external: "M300 122 L300 185",
-    grid: "M455 122 L455 158 Q455 178 435 178 L362 178",
+    pv: "M95 150 L95 220 Q95 235 115 235 L170 235",
+    external: "M250 150 L250 205",
+    grid: "M405 150 L405 220 Q405 235 385 235 L330 235",
 
-    battery: "M245 365 L245 398 Q245 418 225 418 L165 418 Q145 418 145 445",
-    wallbox: "M300 380 L300 445",
-    consumption: "M355 365 L355 398 Q355 418 375 418 L410 418 Q430 418 430 445",
+    battery: "M170 365 H120 Q95 365 95 390 V445",
+    wallbox: "M250 400 L250 445",
+    consumption: "M330 365 H355 Q380 365 380 390 V445",
 
-    heatpump: "M470 475 L480 475 Q500 475 500 425 L500 385 Q500 365 525 365",
-    home: "M470 495 L520 495",
+    heatpump: "M410 495 H430 Q450 495 450 475 V405 Q450 380 475 380 H495",
+    home: "M410 510 L500 510",
   };
 
   setConfig(config) {
     this.config = config;
-    this.attachShadow({ mode: "open" });
+		this._lastSnapshot = "";
+		this._raf = null;
+
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+    }
+
+    this._built = false;
   }
 
-  set hass(hass) {
-    this._hass = hass;
-    this.render();
+	set hass(hass) {
+		this._hass = hass;
+	
+		if (!this.config || !this._hass) return;
+	
+		if (!this._built) {
+			this.buildStaticDom();
+			this._built = true;
+			this._lastSnapshot = "";
+		}
+	
+		const snapshot = this.stateSnapshot();
+	
+		if (snapshot === this._lastSnapshot) {
+			return;
+		}
+	
+		this._lastSnapshot = snapshot;
+	
+		if (this._raf) {
+			cancelAnimationFrame(this._raf);
+		}
+	
+		this._raf = requestAnimationFrame(() => {
+			this._raf = null;
+			this.updateDynamicDom();
+		});
+	}
+
+	stateSnapshot() {
+		const entities = this.config.entities ?? {};
+	
+		const ids = [
+			entities.solar,
+			entities.external,
+			entities.grid,
+			entities.battery_power,
+			entities.battery_soc,
+			entities.battery_runtime,
+			entities.home,
+			entities.wallbox,
+			entities.heatpump,
+			entities.autarky,
+			entities.self_consumption,
+		].filter(Boolean);
+	
+		return ids
+			.map((id) => `${id}:${this._hass?.states?.[id]?.state ?? ""}`)
+			.join("|");
+	}
+
+  render() {
+    if (!this.config || !this._hass) return;
+
+    if (!this._built) {
+      this.buildStaticDom();
+      this._built = true;
+    }
+
+    this.updateDynamicDom();
+  }
+
+  getCardSize() {
+    return 5;
   }
 
   value(entity) {
@@ -73,6 +142,24 @@ class AuriAgerFlowCard extends HTMLElement {
     const value = Number(state?.state);
 
     return Number.isFinite(value) ? value : 0;
+  }
+
+  valueText(entity) {
+    if (!entity) return "";
+
+    const state = this._hass?.states?.[entity];
+    const value = state?.state;
+
+    if (
+      !value ||
+      value === "00:00" ||
+      value === "unknown" ||
+      value === "unavailable"
+    ) {
+      return "";
+    }
+
+    return String(value);
   }
 
   clamp(value, min = 0, max = 100) {
@@ -97,6 +184,50 @@ class AuriAgerFlowCard extends HTMLElement {
     return forward
       ? `marker-end="url(#${markerId}-end)"`
       : `marker-start="url(#${markerId}-start)"`;
+  }
+
+  setText(selector, value) {
+    const el = this.shadowRoot?.querySelector(selector);
+    if (el) el.textContent = value ?? "";
+  }
+
+  setHTML(selector, value) {
+    const el = this.shadowRoot?.querySelector(selector);
+    if (el) el.innerHTML = value ?? "";
+  }
+
+  setVisible(selector, visible) {
+    const el = this.shadowRoot?.querySelector(selector);
+    if (el) el.style.display = visible ? "" : "none";
+  }
+
+  setPathDirection(pathSelector, forward) {
+    const path = this.shadowRoot?.querySelector(pathSelector);
+    if (!path) return;
+
+    path.removeAttribute("marker-start");
+    path.removeAttribute("marker-end");
+
+    if (forward) {
+      path.setAttribute("marker-end", "url(#flow-arrow-end)");
+    } else {
+      path.setAttribute("marker-start", "url(#flow-arrow-start)");
+    }
+  }
+
+  setPillDirection(flowName, reverse, pad = 0.08) {
+    const motion = this.shadowRoot?.querySelector(
+      `#flow-${flowName} animateMotion`
+    );
+
+    if (!motion) return;
+
+    const start = pad;
+    const end = 1 - pad;
+
+    motion.setAttribute("keyPoints", reverse ? `${end};${start}` : `${start};${end}`);
+    motion.setAttribute("keyTimes", "0;1");
+    motion.setAttribute("calcMode", "linear");
   }
 
   arrowDef(id, color = AuriAgerFlowCard.COLORS.arrow) {
@@ -133,43 +264,26 @@ class AuriAgerFlowCard extends HTMLElement {
     `;
   }
 
-  /**
-   * Temporary 1.0a animation strategy:
-   * The card still re-renders on every Home Assistant update.
-   * To avoid visible animation resets, we phase the animation using Date.now().
-   *
-   * Later 1.0b/1.0a+ improvement:
-   * Separate static SVG/animation DOM from value updates.
-   */
-  pill(pathId, duration, reverse = false, pad = 0.08) {
-    const seconds =
-      typeof duration === "number"
-        ? duration
-        : Number(String(duration).replace("s", ""));
-
-    const safeSeconds = Number.isFinite(seconds) && seconds > 0 ? seconds : 8;
-
-    const start = pad;
-    const end = 1 - pad;
-
-    const phase = (Date.now() / 1000) % safeSeconds;
-    const begin = `-${phase.toFixed(3)}s`;
-
-    const direction = reverse
-      ? `keyPoints="${end};${start}" keyTimes="0;1" calcMode="linear"`
-      : `keyPoints="${start};${end}" keyTimes="0;1" calcMode="linear"`;
-
+  flowSvg(name, pathId, d, duration, marker = `marker-end="url(#flow-arrow-end)"`) {
     return `
-      <rect class="pill" x="-10" y="-5" width="20" height="10" rx="5" ry="5">
-        <animateMotion
-          dur="${safeSeconds}s"
-          begin="${begin}"
-          repeatCount="indefinite"
-          rotate="auto"
-          ${direction}>
-          <mpath href="#${pathId}"/>
-        </animateMotion>
-      </rect>
+      <g id="flow-${name}">
+        <path id="${pathId}"
+              class="line"
+              ${marker}
+              d="${d}" />
+
+        <rect class="pill" x="-10" y="-5" width="20" height="10" rx="5" ry="5">
+          <animateMotion
+            dur="${duration}s"
+            repeatCount="indefinite"
+            rotate="auto"
+            keyPoints="0.08;0.92"
+            keyTimes="0;1"
+            calcMode="linear">
+            <mpath href="#${pathId}"/>
+          </animateMotion>
+        </rect>
+      </g>
     `;
   }
 
@@ -263,44 +377,6 @@ class AuriAgerFlowCard extends HTMLElement {
     `);
   }
 
-  renderTopNode(label, iconSvg, value, x, y) {
-    return `
-      <text x="${x}" y="${y}" class="label">${label}</text>
-      <g transform="translate(${x - 20} ${y + 14})">${iconSvg}</g>
-      <text x="${x}" y="${y + 78}" class="value">${value}</text>
-    `;
-  }
-
-  renderBottomNode(label, iconSvg, value, x, y) {
-    return `
-      <text x="${x}" y="${y}" class="value">${value}</text>
-      <g transform="translate(${x - 20} ${y + 7})">${iconSvg}</g>
-      <text x="${x}" y="${y + 62}" class="label">${label}</text>
-    `;
-  }
-
-  renderBatteryNode(label, iconSvg, value, subline, subline2, x, y) {
-    return `
-      <text x="${x}" y="${y}" class="value">${value}</text>
-      <g transform="translate(${x - 20} ${y + 7})">${iconSvg}</g>
-      <text x="${x}" y="${y + 62}" class="label">${label}</text>
-      <text x="${x}" y="${y + 84}" class="small">${subline}</text>
-      <text x="${x}" y="${y + 100}" class="small">${subline2}</text>
-    `;
-  }
-
-  valueText(entity) {
-    if (!entity) return "";
-    const state = this._hass?.states?.[entity];
-    const value = state?.state;
-
-    if (!value || value === "00:00" || value === "unknown" || value === "unavailable") {
-      return "";
-    }
-
-    return String(value);
-  }
-
   resolveData() {
     const entities = this.config.entities ?? {};
     const externalConfig = this.config.external ?? {};
@@ -344,9 +420,9 @@ class AuriAgerFlowCard extends HTMLElement {
       "Standby";
 
     const active = {
-      solar: solar > AuriAgerFlowCard.THRESHOLD_W,
+      solar: solar > AuriAgerFlowCard.THRESHOLD_W_ZERO,
       external: externalDisplay > AuriAgerFlowCard.THRESHOLD_W,
-      grid: Math.abs(grid) > AuriAgerFlowCard.THRESHOLD_W,
+      grid: Math.abs(grid) > AuriAgerFlowCard.THRESHOLD_W_ZERO,
       battery: Math.abs(batteryPower) > AuriAgerFlowCard.THRESHOLD_W,
       wallbox: wallbox > AuriAgerFlowCard.THRESHOLD_W,
       consumption: consumption > AuriAgerFlowCard.THRESHOLD_W,
@@ -369,150 +445,184 @@ class AuriAgerFlowCard extends HTMLElement {
       consumption,
       autarky,
       selfConsumption,
+
+      // grid path is drawn grid -> center.
+      // grid > 0 means export, therefore center -> grid, so reverse path.
       gridForward: grid < 0,
+
+      // battery path is drawn center -> battery.
+      // batteryPower < 0 means charging, therefore center -> battery.
       batteryForward: batteryPower < 0,
-      active, 
+
+      active,
     };
   }
 
-  ringsSvg(data) {
-    const { autarky, selfConsumption } = data;
-    const { autarky: autarkyLayout, selfConsumption: selfLayout } =
-      AuriAgerFlowCard.LAYOUT;
-
-    const autarkyCircumference = 2 * Math.PI * autarkyLayout.r;
-    const autarkyDash =
-      (this.clamp(autarky) / 100) * autarkyCircumference;
-
-    const selfCircumference = 2 * Math.PI * selfLayout.r;
-    const selfDash =
-      (this.clamp(selfConsumption) / 100) * selfCircumference;
-
-    return `
-      <circle cx="${selfLayout.x}" cy="${selfLayout.y}" r="${selfLayout.r}" class="ring-bg self-ring-bg"/>
-      <circle cx="${selfLayout.x}" cy="${selfLayout.y}" r="${selfLayout.r}" class="self-ring"
-              stroke-dasharray="${selfDash} ${selfCircumference}"/>
-      <text x="${selfLayout.x}" y="${selfLayout.y - 3}" class="self-value">${Math.round(selfConsumption)}%</text>
-      <text x="${selfLayout.x}" y="${selfLayout.y + 15}" class="self-label">Eigen-</text>
-      <text x="${selfLayout.x}" y="${selfLayout.y + 29}" class="self-label">verbrauch</text>
-
-      <circle cx="${autarkyLayout.x}" cy="${autarkyLayout.y}" r="${autarkyLayout.r}" class="ring-bg autarky-ring-bg"/>
-      <circle cx="${autarkyLayout.x}" cy="${autarkyLayout.y}" r="${autarkyLayout.r}" class="autarky-ring"
-              stroke-dasharray="${autarkyDash} ${autarkyCircumference}"/>
-      <text x="${autarkyLayout.x}" y="${autarkyLayout.y - 7}" class="center-value">${Math.round(autarky)}%</text>
-      <text x="${autarkyLayout.x}" y="${autarkyLayout.y + 19}" class="center-label">Autarkie</text>
-    `;
-  }
-
-  pathsSvg(data) {
-    const { gridForward, batteryForward, active } = data;
+  buildStaticDom() {
     const p = AuriAgerFlowCard.PATHS;
 
-    const path = (id, d, marker = `marker-end="url(#flow-arrow-end)"`) => `
-      <path id="${id}" class="line"
-            ${marker}
-            d="${d}" />
-    `;
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
 
-    return `
-      ${active.solar ? path("pv-path", p.pv) : ""}
-      ${active.external ? path("external-path", p.external) : ""}
-      ${active.grid ? path("grid-path",p.grid,this.markerAttrs("flow-arrow", gridForward)) : ""}
-      ${active.battery ? path("battery-path",p.battery,this.markerAttrs("flow-arrow", batteryForward)) : ""}
-      ${active.wallbox ? path("wallbox-path", p.wallbox) : ""}
-      ${active.consumption ? path("consumption-path", p.consumption) : ""}
-      ${active.heatpump ? path("heatpump-path", p.heatpump) : ""}
-      ${active.home ? path("home-path", p.home) : ""}
-    `;
-  }
+      <ha-card>
+        <svg viewBox="${AuriAgerFlowCard.LAYOUT.viewBox}">
+          <defs>
+            ${this.arrowDef("flow-arrow")}
+          </defs>
 
-  pillsSvg(data) {
-    const { active } = data;
+          <text x="8" y="8" class="title">Auri Ager Flow</text>
 
-    return `
-      ${active.solar ? this.pill("pv-path", 7) : ""}
-      ${active.external ? this.pill("external-path", 8) : ""}
-      ${active.grid ? this.pill("grid-path", 8, !data.gridForward) : ""}
-      ${active.battery ? this.pill("battery-path", 8, !data.batteryForward) : ""}
-      ${active.wallbox ? this.pill("wallbox-path", 9) : ""}
-      ${active.consumption ? this.pill("consumption-path", 9) : ""}
-      ${active.heatpump ? this.pill("heatpump-path", 9) : ""}
-      ${active.home ? this.pill("home-path", 9) : ""}
+          ${this.flowSvg("solar", "pv-path", p.pv, 7)}
+          ${this.flowSvg("external", "external-path", p.external, 8)}
+          ${this.flowSvg("grid", "grid-path", p.grid, 8)}
+          ${this.flowSvg("battery", "battery-path", p.battery, 8)}
+          ${this.flowSvg("wallbox", "wallbox-path", p.wallbox, 9)}
+          ${this.flowSvg("consumption", "consumption-path", p.consumption, 9)}
+          ${this.flowSvg("heatpump", "heatpump-path", p.heatpump, 9)}
+          ${this.flowSvg("home", "home-path", p.home, 9)}
+
+          ${this.staticRingsSvg()}
+          ${this.staticNodesSvg()}
+        </svg>
+      </ha-card>
     `;
   }
 
-  nodesSvg(data) {
+  staticRingsSvg() {
+    const { autarky, selfConsumption } = AuriAgerFlowCard.LAYOUT;
+
+    return `
+      <circle cx="${selfConsumption.x}" cy="${selfConsumption.y}" r="${selfConsumption.r}" class="ring-bg self-ring-bg"/>
+      <circle id="self-ring" cx="${selfConsumption.x}" cy="${selfConsumption.y}" r="${selfConsumption.r}" class="self-ring"/>
+      <text id="self-value" x="${selfConsumption.x}" y="${selfConsumption.y - 3}" class="self-value"></text>
+      <text x="${selfConsumption.x}" y="${selfConsumption.y + 15}" class="self-label">Eigen-</text>
+      <text x="${selfConsumption.x}" y="${selfConsumption.y + 29}" class="self-label">verbrauch</text>
+
+      <circle cx="${autarky.x}" cy="${autarky.y}" r="${autarky.r}" class="ring-bg autarky-ring-bg"/>
+      <circle id="autarky-ring" cx="${autarky.x}" cy="${autarky.y}" r="${autarky.r}" class="autarky-ring"/>
+      <text id="autarky-value" x="${autarky.x}" y="${autarky.y - 7}" class="center-value"></text>
+      <text x="${autarky.x}" y="${autarky.y + 19}" class="center-label">Autarkie</text>
+    `;
+  }
+
+  staticNodesSvg() {
     const n = AuriAgerFlowCard.LAYOUT.nodes;
 
     return `
-      ${this.renderTopNode(
-        "PV",
-        data.solar > AuriAgerFlowCard.THRESHOLD_W
-          ? this.solarIcon()
-          : this.moonIcon(),
-        this.fmtW(data.solar),
-        n.pv.x,
-        n.pv.y
-      )}
+      <text x="${n.pv.x}" y="${n.pv.y}" class="label">PV</text>
+      <g id="pv-icon" transform="translate(${n.pv.x - 20} ${n.pv.y + 14})"></g>
+      <text id="pv-value" x="${n.pv.x}" y="${n.pv.y + 78}" class="value"></text>
 
-      ${this.renderTopNode(
-        data.externalLabel,
-        this.externalIcon(),
-        this.fmtW(data.externalDisplay),
-        n.external.x,
-        n.external.y
-      )}
+      <text id="external-label" x="${n.external.x}" y="${n.external.y}" class="label"></text>
+      <g id="external-icon" transform="translate(${n.external.x - 20} ${n.external.y + 14})">
+        ${this.externalIcon()}
+      </g>
+      <text id="external-value" x="${n.external.x}" y="${n.external.y + 78}" class="value"></text>
 
-      ${this.renderTopNode(
-        "Netz",
-        this.gridIcon(),
-        this.fmtW(data.grid),
-        n.grid.x,
-        n.grid.y
-      )}
+      <text x="${n.grid.x}" y="${n.grid.y}" class="label">Netz</text>
+      <g id="grid-icon" transform="translate(${n.grid.x - 20} ${n.grid.y + 14})">
+        ${this.gridIcon()}
+      </g>
+      <text id="grid-value" x="${n.grid.x}" y="${n.grid.y + 78}" class="value"></text>
 
-      ${this.renderBatteryNode(
-        "Batterie",
-        this.batteryIcon(data.batterySoc),
-        `${Math.round(data.batterySoc)}%`,
-        `${data.batteryLabel} · ${this.fmtW(data.batteryPower)}`,
-        data.batteryRuntime ? `Laufzeit ${data.batteryRuntime}` : "",
-        n.battery.x,
-        n.battery.y
-      )}
+      <text id="battery-value" x="${n.battery.x}" y="${n.battery.y}" class="value"></text>
+      <g id="battery-icon" transform="translate(${n.battery.x - 20} ${n.battery.y + 7})"></g>
+      <text x="${n.battery.x}" y="${n.battery.y + 62}" class="label">Batterie</text>
+      <text id="battery-subline" x="${n.battery.x}" y="${n.battery.y + 84}" class="small"></text>
+      <text id="battery-runtime" x="${n.battery.x}" y="${n.battery.y + 100}" class="small"></text>
 
-      ${this.renderBottomNode(
-        "Wallbox",
-        this.wallboxIcon(),
-        this.fmtW(data.wallbox),
-        n.wallbox.x,
-        n.wallbox.y
-      )}
+      <text id="wallbox-value" x="${n.wallbox.x}" y="${n.wallbox.y}" class="value"></text>
+      <g transform="translate(${n.wallbox.x - 20} ${n.wallbox.y + 7})">
+        ${this.wallboxIcon()}
+      </g>
+      <text x="${n.wallbox.x}" y="${n.wallbox.y + 62}" class="label">Wallbox</text>
 
-      ${this.renderBottomNode(
-        "Verbrauch",
-        this.homeIcon(),
-        this.fmtW(data.consumption),
-        n.consumption.x,
-        n.consumption.y
-      )}
+      <text id="consumption-value" x="${n.consumption.x}" y="${n.consumption.y}" class="value"></text>
+      <g transform="translate(${n.consumption.x - 20} ${n.consumption.y + 7})">
+        ${this.homeIcon()}
+      </g>
+      <text x="${n.consumption.x}" y="${n.consumption.y + 62}" class="label">Verbrauch</text>
 
-      ${this.renderBottomNode(
-        "Wärmepumpe",
-        this.heatpumpIcon(),
-        this.fmtW(data.heatpump),
-        n.heatpump.x,
-        n.heatpump.y
-      )}
+      <text id="heatpump-value" x="${n.heatpump.x}" y="${n.heatpump.y}" class="value"></text>
+      <g transform="translate(${n.heatpump.x - 20} ${n.heatpump.y + 7})">
+        ${this.heatpumpIcon()}
+      </g>
+      <text x="${n.heatpump.x}" y="${n.heatpump.y + 62}" class="label">Wärmepumpe</text>
 
-      ${this.renderBottomNode(
-        "Haus",
-        this.homeIcon(),
-        this.fmtW(data.homeBase),
-        n.home.x,
-        n.home.y
-      )}
+      <text id="home-value" x="${n.home.x}" y="${n.home.y}" class="value"></text>
+      <g transform="translate(${n.home.x - 20} ${n.home.y + 7})">
+        ${this.homeIcon()}
+      </g>
+      <text x="${n.home.x}" y="${n.home.y + 62}" class="label">Haus</text>
     `;
+  }
+
+  updateDynamicDom() {
+    const data = this.resolveData();
+    const { autarky, selfConsumption } = AuriAgerFlowCard.LAYOUT;
+
+    const autarkyCircumference = 2 * Math.PI * autarky.r;
+    const autarkyDash =
+      (this.clamp(data.autarky) / 100) * autarkyCircumference;
+
+    const selfCircumference = 2 * Math.PI * selfConsumption.r;
+    const selfDash =
+      (this.clamp(data.selfConsumption) / 100) * selfCircumference;
+
+    this.shadowRoot
+      .querySelector("#autarky-ring")
+      ?.setAttribute("stroke-dasharray", `${autarkyDash} ${autarkyCircumference}`);
+
+    this.shadowRoot
+      .querySelector("#self-ring")
+      ?.setAttribute("stroke-dasharray", `${selfDash} ${selfCircumference}`);
+
+    this.setText("#autarky-value", `${Math.round(data.autarky)}%`);
+    this.setText("#self-value", `${Math.round(data.selfConsumption)}%`);
+
+    this.setText("#pv-value", this.fmtW(data.solar));
+    this.setHTML(
+      "#pv-icon",
+      data.solar > AuriAgerFlowCard.THRESHOLD_W
+        ? this.solarIcon()
+        : this.moonIcon()
+    );
+
+    this.setText("#external-label", data.externalLabel);
+    this.setText("#external-value", this.fmtW(data.externalDisplay));
+
+    this.setText("#grid-value", this.fmtW(data.grid));
+
+    this.setText("#battery-value", `${Math.round(data.batterySoc)}%`);
+    this.setHTML("#battery-icon", this.batteryIcon(data.batterySoc));
+    this.setText(
+      "#battery-subline",
+      `${data.batteryLabel} · ${this.fmtW(data.batteryPower)}`
+    );
+    this.setText(
+      "#battery-runtime",
+      data.batteryRuntime ? `Laufzeit ${data.batteryRuntime}` : ""
+    );
+
+    this.setText("#wallbox-value", this.fmtW(data.wallbox));
+    this.setText("#consumption-value", this.fmtW(data.consumption));
+    this.setText("#heatpump-value", this.fmtW(data.heatpump));
+    this.setText("#home-value", this.fmtW(data.homeBase));
+
+    this.setPathDirection("#grid-path", data.gridForward);
+    this.setPathDirection("#battery-path", data.batteryForward);
+
+    this.setPillDirection("grid", !data.gridForward);
+    this.setPillDirection("battery", !data.batteryForward);
+
+    this.setVisible("#flow-solar", data.active.solar);
+    this.setVisible("#flow-external", data.active.external);
+    this.setVisible("#flow-grid", data.active.grid);
+    this.setVisible("#flow-battery", data.active.battery);
+    this.setVisible("#flow-wallbox", data.active.wallbox);
+    this.setVisible("#flow-consumption", data.active.consumption);
+    this.setVisible("#flow-heatpump", data.active.heatpump);
+    this.setVisible("#flow-home", data.active.home);
   }
 
   styles() {
@@ -645,35 +755,6 @@ class AuriAgerFlowCard extends HTMLElement {
         }
       </style>
     `;
-  }
-
-  render() {
-    if (!this.config || !this._hass) return;
-
-    const data = this.resolveData();
-
-    this.shadowRoot.innerHTML = `
-      ${this.styles()}
-
-      <ha-card>
-        <svg viewBox="${AuriAgerFlowCard.LAYOUT.viewBox}">
-          <defs>
-            ${this.arrowDef("flow-arrow")}
-          </defs>
-
-          <text x="8" y="8" class="title">Auri Ager Flow</text>
-
-          ${this.pathsSvg(data)}
-          ${this.pillsSvg(data)}
-          ${this.ringsSvg(data)}
-          ${this.nodesSvg(data)}
-        </svg>
-      </ha-card>
-    `;
-  }
-
-  getCardSize() {
-    return 5;
   }
 }
 
