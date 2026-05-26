@@ -1,15 +1,42 @@
 class AuriAgerStatusCard extends HTMLElement {
-  static COLORS = {
-    ok: "#2e7d32",
-    warning: "#f57c00",
-    fault: "#d32f2f",
-    info: "#1565c0",
-    neutral: "rgba(60,60,60,.45)",
-    grid: "darkslategray",
-    offgrid: "purple",
-    buying: "crimson",
-    selling: "green",
-    cardBorder: "rgba(0,0,0,.06)",
+  static COLOR_SCHEMES = {
+  	light: {
+			cardBg: "#ffffff",
+			cardBorder: "rgba(0,0,0,.06)",
+		
+			label: "rgba(60,60,60,.65)",
+			small: "rgba(60,60,60,.55)",
+		
+			ok: "#2e7d32",
+			warning: "#f57c00",
+			fault: "#d32f2f",
+			info: "#1565c0",
+			neutral: "rgba(60,60,60,.45)",
+		
+			grid: "darkslategray",
+			offgrid: "purple",
+			buying: "crimson",
+			selling: "green",
+  	},
+  	dark: {
+			cardBg: "#1f2326",
+			cardBorder: "rgba(255,255,255,.08)",
+		
+			label: "rgba(220,225,228,.70)",
+			small: "rgba(220,225,228,.55)",
+		
+			ok: "#5cb85c",
+			warning: "#f6a623",
+			fault: "#ef5350",
+			info: "#4da3ff",
+		
+			neutral: "rgba(220,225,228,.40)",
+		
+			grid: "#7da2a6",
+			offgrid: "#b084f5",
+			buying: "#ff6b6b",
+			selling: "#5fcf7b",
+  	},
   };
 
   setConfig(config) {
@@ -38,6 +65,23 @@ class AuriAgerStatusCard extends HTMLElement {
   getCardSize() {
     return 1;
   }
+
+	themeMode() {
+		const configured = this.config.theme ?? "auto";
+	
+		if (configured !== "auto") {
+			return configured;
+		}
+	
+		const theme = this._hass?.themes?.darkMode;
+		return theme ? "dark" : "light";
+	}
+	
+	colors() {
+		const mode = this.themeMode();
+		return this.constructor.COLOR_SCHEMES[mode]
+			?? this.constructor.COLOR_SCHEMES.light;
+	}
 
   state(entity) {
     if (!entity) return undefined;
@@ -74,6 +118,8 @@ class AuriAgerStatusCard extends HTMLElement {
   }
 
   build() {
+	  const COLORS = this.colors();
+
     this.shadowRoot.innerHTML = `
       <style>
         ha-card {
@@ -83,8 +129,8 @@ class AuriAgerStatusCard extends HTMLElement {
           gap: 18px;
           padding: 10px 14px;
           border-radius: 18px;
-          border: 1px solid ${AuriAgerStatusCard.COLORS.cardBorder};
-          background: var(--ha-card-background, #fff);
+					border: 1px solid ${COLORS.cardBorder};
+          background: var(--ha-card-background, ${COLORS.cardBg});
           box-shadow: none;
         }
 
@@ -106,7 +152,7 @@ class AuriAgerStatusCard extends HTMLElement {
           font-family: var(--ha-font-family-body, system-ui);
           font-size: 10px;
           line-height: 1.1;
-          color: rgba(60,60,60,.62);
+          color: ${COLORS.label};
           white-space: nowrap;
         }
 
@@ -151,7 +197,7 @@ class AuriAgerStatusCard extends HTMLElement {
 
   update() {
     const e = this.config.entities ?? {};
-    const C = AuriAgerStatusCard.COLORS;
+		const C = this.colors();
 
     // 1. Netzstatus
     if (this.isOn(e.is_offgrid)) {
