@@ -2518,7 +2518,8 @@ class AuriAgerFinanceCard extends AuriAgerBaseCard {
 		  : gridImportCost + totalSaving;
 		// Old value w/o fictional_total
     // const fictionalTotal = gridImportCost + totalSaving;
-    const netBenefit = totalSaving + feedInRevenue - gridImportCost;
+    const netBenefit = fictionalTotal - gridImportCost + feedInRevenue;
+    // wrong: totalSaving + feedInRevenue - gridImportCost;
 
     return {
       directSaving,
@@ -2625,7 +2626,7 @@ class AuriAgerFinanceCard extends AuriAgerBaseCard {
           ${this.row("feed-in-revenue", this.icon("export"), "Einspeisevergütung")}
           ${this.row("grid-import-cost", this.icon("import"), "Netzbezugskosten")}
           ${this.row("fictional-total", this.icon("fiction"), "Fiktive Summe", "Kosten + Ersparnis")}
-          ${this.row("net-benefit", this.icon("sum"), "Bilanz", "Ersparnis + Vergütung - Kosten")}
+          ${this.row("net-benefit", this.icon("sum"), "PV Vorteil", "gegenüber Netzbetrieb")}
         </div>
       </ha-card>
     `;
