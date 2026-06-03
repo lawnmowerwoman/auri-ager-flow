@@ -1,6 +1,11 @@
 /*
  * Auri Ager Framework
- * Bundled Home Assistant custom cards: Flow, Summary, Finance, Gauge and Sun.
+ * Bundled Home Assistant custom cards for calm energy, status and dashboard visualization.
+ *
+ * Includes Flow, Summary, Finance, Gauge, Sun, Status, Control, Value,
+ * Camera, Entities, Micro Entity, Progress, Thermometer and Markdown cards.
+ *
+ * A framework to optimize the life standard of a German Shepherd dog named Baro 🐾
  *
  * Copyright (c) 2026 Stefanie Ramroth
  * Licensed under the Apache License, Version 2.0
@@ -85,6 +90,7 @@ class AuriAgerFlowCard extends HTMLElement {
   	light: {
 			cardBg: "#ffffff",
 			cardBorder: "rgba(0,0,0,.06)",
+			accent: "#f5b82e",
 
 			icon: "rgba(60,60,60,.70)",
 			line: "rgba(100,100,100,.58)",
@@ -103,6 +109,7 @@ class AuriAgerFlowCard extends HTMLElement {
   	dark: {
 			cardBg: "#1f2326",
 			cardBorder: "rgba(255,255,255,.08)",
+			accent: "#f5b82e",
 		
 			icon: "rgba(220,225,228,.68)",
 			line: "rgba(190,195,198,.42)",
@@ -142,8 +149,8 @@ class AuriAgerFlowCard extends HTMLElement {
 
     simple: {
       viewBox: "0 0 600 600",
-      autarky: { x: 300, y: 315, r: 78 },
-      selfConsumption: { x: 140, y: 315, r: 40 },
+      autarky: { x: 300, y: 325, r: 78 },
+      selfConsumption: { x: 140, y: 325, r: 40 },
       nodes: {
         pv: { x: 145, y: 75 },
         external: { x: 300, y: 75 },
@@ -168,7 +175,7 @@ class AuriAgerFlowCard extends HTMLElement {
 			consumption: "M330 390 H355 Q380 390 380 415 V470",
 			heatpump: "M410 520 H430 Q450 520 450 500 V430 Q450 405 475 405 H495",
 			home: "M410 535 L500 535",
-			wallboxBehindHome: "M355 535 H300",
+			wallboxBehindHome: "M355 535 H285",
 		},
 	
 		simple: {
@@ -181,7 +188,7 @@ class AuriAgerFlowCard extends HTMLElement {
 			consumption: "M380 390 H405 Q430 390 430 415 V470",
 			heatpump: "M460 520 H480 Q500 520 500 500 V430 Q500 405 525 405 H545",
 			home: "M460 535 L550 535",
-			wallboxBehindHome: "M405 535 H350",
+			wallboxBehindHome: "M405 535 H335",
 		},
 	};
 
@@ -290,8 +297,7 @@ class AuriAgerFlowCard extends HTMLElement {
 	}
 
   layoutMode() {
-    const entities = this.config?.entities ?? {};
-    return this.hasEntity(entities.heatpump) ? "full" : "simple";
+	  return this.hasSecondaryConsumer() ? "full" : "simple";
   }
 
   currentLayout() {
@@ -315,6 +321,33 @@ class AuriAgerFlowCard extends HTMLElement {
 			minute: "2-digit",
 			second: "2-digit",
 		});
+	}
+
+	hasSecondaryConsumer() {
+		const entities = this.config?.entities ?? {};
+	
+		const heatpumpMode =
+			this.config?.heatpump?.mode ?? "behind_home";
+	
+		const wallboxMode =
+			this.config?.wallbox?.mode ?? "behind_home";
+	
+		const available = {
+			wallbox: this.hasEntity(entities.wallbox),
+			heatpump: this.hasEntity(entities.heatpump),
+		};
+	
+		const needsHomeSplit =
+			available.heatpump;
+		
+		const needsWallboxSplit =
+			available.wallbox &&
+			wallboxMode === "behind_home";
+		
+		return (
+			needsHomeSplit ||
+			needsWallboxSplit
+		);
 	}
 
 	hasEntity(entity) {
@@ -622,11 +655,12 @@ class AuriAgerFlowCard extends HTMLElement {
 		const heatpumpMode = this.config.heatpump?.mode ?? "behind_home";
 		const wallboxMode = this.config.wallbox?.mode ?? "behind_home";
 
+		const hasSecondaryConsumer = this.hasSecondaryConsumer();
 		const available = {
 		  external: this.hasEntity(entities.external),
 		  wallbox: this.hasEntity(entities.wallbox),
 		  heatpump: this.hasEntity(entities.heatpump),
-		  home: this.hasEntity(entities.heatpump),
+		  home: hasSecondaryConsumer,
 		};
 
     const solarRaw = this.value(entities.solar);
@@ -674,24 +708,14 @@ class AuriAgerFlowCard extends HTMLElement {
 			consumption += wallbox;
 		}
 
-		/*
-    const homeBase = available.heatpump
-      ? Math.max(0, homeRaw + externalCorrection - wallbox - heatpump)
-      : Math.max(0, homeRaw + externalCorrection - wallbox);
-
-    const consumption = available.heatpump
-      ? Math.max(0, homeBase + heatpump)
-      : Math.max(0, homeBase);
-		*/
-
 		const gridImport = Math.max(0, -grid);
 		const gridExport = Math.max(0, grid);
 		
-		const producedPower =
-			solar +
-			(externalMode !== "behind_home"
-				? externalDisplay
-				: 0);
+		let producedPower = solar;
+
+		if (available.external && externalMode !== "addToPV") {
+		  producedPower += external;
+		}
 		
 		const selfConsumedPower =
 			Math.max(
@@ -721,19 +745,6 @@ class AuriAgerFlowCard extends HTMLElement {
 					)
 				: 0;
 		
-		/*
-		const selfConsumption =
-			solar > 0
-				? Math.max(
-						0,
-						Math.min(
-							100,
-							(selfConsumedPower / solar) * 100
-						)
-					)
-				: 0;
-		*/
-
     const batteryLabel =
       batteryPower > AuriAgerFlowCard.THRESHOLD_W ? "Entlädt" :
       batteryPower < -AuriAgerFlowCard.THRESHOLD_W ? "Lädt" :
@@ -802,26 +813,28 @@ class AuriAgerFlowCard extends HTMLElement {
       ${this.styles()}
 
       <ha-card>
-        <svg viewBox="${layout.viewBox}">
+         <div class="dashboard-header">
+         	<div class="header-accent"></div>
+         	<div>
+						<div id="dashboard-title" class="dashboard-title"></div>
+			      <div id="dashboard-time" class="dashboard-time"></div>
+					</div>
+				</div>
+
+        <svg class="flow-svg" viewBox="${layout.viewBox}">
           <defs>
             ${this.arrowDef("flow-arrow")}
           </defs>
-
-          <g id="dashboard-header" transform="translate(8 8)">
-						<rect class="header-accent" x="0" y="0" width="8" height="42" rx="4"/>
-						<text id="dashboard-title" x="18" y="16" class="dashboard-title"></text>
-						<text id="dashboard-time" x="18" y="36" class="dashboard-time"></text>
-					</g>
 
           ${this.flowSvg("solar", "pv-path", p.pv, 7)}
           ${this.flowSvg("external", "external-path", p.external, 8)}
           ${this.flowSvg("external-to-pv", "external-to-pv-path", p.externalToPv, 8)}
           ${this.flowSvg("grid", "grid-path", p.grid, 8)}
           ${this.flowSvg("battery", "battery-path", p.battery, 8)}
-          ${this.flowSvg("wallbox", "wallbox-path", p.wallbox, 9)}
-          ${this.flowSvg("wallbox-behind-home", "wallbox-behind-home-path", p.wallboxBehindHome, 9)}
+          ${this.flowSvg("wallbox", "wallbox-path", p.wallbox, 7)}
+          ${this.flowSvg("wallbox-behind-home", "wallbox-behind-home-path", p.wallboxBehindHome, 7)}
           ${this.flowSvg("consumption", "consumption-path", p.consumption, 9)}
-          ${this.flowSvg("heatpump", "heatpump-path", p.heatpump, 9)}
+          ${this.flowSvg("heatpump", "heatpump-path", p.heatpump, 8)}
           ${this.flowSvg("home", "home-path", p.home, 9)}
 
           ${this.staticRingsSvg()}
@@ -861,7 +874,7 @@ class AuriAgerFlowCard extends HTMLElement {
 				</g>
 				<text id="pv-value"
 							x="${n.pv.x}"
-							y="${n.pv.y + 78}"
+							y="${n.pv.y + 84}"
 							class="value">
 				</text>
 			</g>
@@ -880,7 +893,7 @@ class AuriAgerFlowCard extends HTMLElement {
 		
 				<text id="external-value"
 							x="${n.external.x}"
-							y="${n.external.y + 78}"
+							y="${n.external.y + 84}"
 							class="value">
 				</text>
 			</g>
@@ -895,7 +908,7 @@ class AuriAgerFlowCard extends HTMLElement {
 		
 				<text id="grid-value"
 							x="${n.grid.x}"
-							y="${n.grid.y + 78}"
+							y="${n.grid.y + 84}"
 							class="value">
 				</text>
 			</g>
@@ -1024,6 +1037,18 @@ class AuriAgerFlowCard extends HTMLElement {
   	//console.log("[AuriAgerFlow] updateDynamicDom called");
     const data = this.resolveData();
     //console.log("[AuriAgerFlow] data", data);
+
+		const compact =
+		  this.offsetWidth < 800;
+
+		const card =
+			this.shadowRoot.querySelector("ha-card");
+		
+		card?.classList.toggle(
+			"compact",
+			compact
+		);
+
     const { autarky, selfConsumption } = this.currentLayout();
 
     const autarkyCircumference = 2 * Math.PI * autarky.r;
@@ -1140,16 +1165,43 @@ class AuriAgerFlowCard extends HTMLElement {
 				.header-accent {
 					fill: ${COLORS.autarky};
 				}
+
+				.dashboard-header {
+					position: absolute;
+					left: 18px;
+					top: 18px;
+					display: grid;
+					grid-template-columns: 8px minmax(0, 1fr);
+					gap: 14px;
+					align-items: start;
+					z-index: 5;
+					pointer-events: none;
+				}
+				
+				.dashboard-header .header-accent {
+					width: 8px;
+					height: 42px;
+					border-radius: 4px;
+					background: ${COLORS.accent};
+				}
 				
 				.dashboard-title {
-					font-size: 18px;
+					font-size: 20px;
 					font-weight: 750;
-					fill: ${COLORS.value};
+					line-height: 1.1;
+					color: ${COLORS.value};
+					transform: translateY(-2px);
 				}
 				
 				.dashboard-time {
+					margin-top: 1px;
 					font-size: 13px;
-					fill: ${COLORS.small};
+					color: ${COLORS.small};
+				}
+				
+				ha-card {
+					position: relative;
+					padding-top: 86px;
 				}
 
 				svg {
@@ -1160,6 +1212,13 @@ class AuriAgerFlowCard extends HTMLElement {
 					object-fit: contain;
 					font-family: var(--ha-font-family-body, system-ui);
 					overflow: visible;
+				}
+				
+				.flow-svg {
+				  display: block;
+				  width: 100%;
+				  height: auto;
+				  margin-top: -64px;
 				}
 
         .title {
@@ -1180,6 +1239,10 @@ class AuriAgerFlowCard extends HTMLElement {
           fill: ${COLORS.value};
           text-anchor: middle;
         }
+        
+        ha-card.compact .value {
+				  font-size: 30px;
+				}
 
         .small {
           font-size: 13px;
@@ -1875,6 +1938,9 @@ class AuriAgerSummaryCard extends HTMLElement {
 			production = this.value(entities.production_dc) * (efficiency / 100);
 		}
 
+    const battery_charge = this.value(entities.battery_charge);
+    const battery_discharge = this.value(entities.battery_discharge);
+
     const feedIn = this.value(entities.feed_in);
     const gridImport = this.value(entities.grid_import);
     const consumption = this.value(entities.consumption);
@@ -1898,6 +1964,8 @@ class AuriAgerSummaryCard extends HTMLElement {
     return {
       production,
       productionDc,
+      battery_charge,
+      battery_discharge,
       feedIn,
       gridImport,
       consumption,
@@ -1911,6 +1979,8 @@ class AuriAgerSummaryCard extends HTMLElement {
       hasProductionDc: productionDc !== null,
       hasWallbox: this.hasEntity(entities.wallbox),
       hasHeatpump: this.hasEntity(entities.heatpump),
+      hasBatteryCharge: this.hasEntity(entities.battery_charge),
+      hasBatteryDischarge: this.hasEntity(entities.battery_discharge),
     };
   }
 
@@ -1918,6 +1988,8 @@ class AuriAgerSummaryCard extends HTMLElement {
     const icons = {
       production: "mdi:solar-power-variant",
       self: "mdi:home-lightning-bolt",
+      batteryUp: "mdi:battery-arrow-up",
+      batteryDown: "mdi:battery-arrow-down-outline",
       feedIn: "mdi:transmission-tower-export",
       gridImport: "mdi:transmission-tower-import",
       consumption: "mdi:home-lightning-bolt-outline",
@@ -1939,14 +2011,14 @@ class AuriAgerSummaryCard extends HTMLElement {
 			</svg>
 			`,
 			
-tree: `
-<svg viewBox="0 0 24 24" class="inline-icon tree-inline">
-  <circle cx="12" cy="8" r="4"/>
-  <circle cx="9" cy="10" r="3.2"/>
-  <circle cx="15" cy="10" r="3.2"/>
-  <rect x="11" y="13" width="2" height="7" rx="1"/>
-</svg>
-`,
+			tree: `
+			<svg viewBox="0 0 24 24" class="inline-icon tree-inline">
+				<circle cx="12" cy="8" r="4"/>
+				<circle cx="9" cy="10" r="3.2"/>
+				<circle cx="15" cy="10" r="3.2"/>
+				<rect x="11" y="13" width="2" height="7" rx="1"/>
+			</svg>
+			`,
     };
 
     return icons[name] ?? "mdi:chart-box-outline";
@@ -1965,8 +2037,29 @@ tree: `
     `;
   }
 
+  fireMoreInfo(entityId) {
+    if (!entityId) return;
+
+    this.dispatchEvent(
+      new CustomEvent("hass-more-info", {
+        bubbles: true,
+        composed: true,
+        detail: { entityId },
+      })
+    );
+  }
+  
+  attachEntityClick(selector, entityId) {
+		const el = this.shadowRoot?.querySelector(selector);
+		if (!el || !entityId) return;
+	
+		el.classList.add("clickable");
+		el.addEventListener("click", () => this.fireMoreInfo(entityId));
+	}
+
   styles() {
     const C = this.colors();
+    const accent = this.config.accent_color ?? C.accent;
 
     return `
       <style>
@@ -1991,7 +2084,7 @@ tree: `
           width: 8px;
           height: 42px;
           border-radius: 4px;
-          background: ${C.accent};
+          background: ${accent};
         }
 
         .title {
@@ -2006,6 +2099,18 @@ tree: `
           font-size: 13px;
           color: ${C.small};
         }
+
+				.clickable {
+					cursor: pointer;
+				}
+				
+				.clickable:hover {
+					opacity: .82;
+				}
+				
+				.clickable:active {
+					opacity: .65;
+				}
 
         .rows {
           display: grid;
@@ -2088,15 +2193,14 @@ tree: `
 				.dc-production{
 						display:inline-flex;
 						align-items:center;
-						gap:4px;
-						margin-left:8px;
+						gap:6px;
+						margin-right:8px;
 				}
 				
 				.dc-label{
 						font-size:.62em;
 						opacity:.60;
 						font-weight:500;
-						margin-left:2px;
 				}
 
 				.tree-count{
@@ -2133,8 +2237,8 @@ tree: `
 				.inline-icon{
 						width:18px;
 						height:18px;
-						margin-left:10px;
-						margin-right:6px;
+						margin-left:0px;
+						margin-right:3px;
 						vertical-align:-3px;
 				}
 				
@@ -2178,6 +2282,10 @@ tree: `
         <div class="rows">
           ${this.row("production", this.icon("production"), "Produktion")}
           ${this.row("self-consumption", this.icon("self"), "Eigenverbrauch")}
+
+          ${this.row("battery-charge", this.icon("batteryUp"), "Batterie laden")}
+          ${this.row("battery-discharge", this.icon("batteryDown"), "Batterie entladen")}
+
           ${this.row("feed-in", this.icon("feedIn"), "Einspeisung")}
           ${this.row("grid-import", this.icon("gridImport"), "Netzbezug")}
           ${this.row("consumption", this.icon("consumption"), "Verbrauch")}
@@ -2199,6 +2307,18 @@ tree: `
         </div>
       </ha-card>
     `;
+    
+    const e = this.config.entities ?? {};
+
+		this.attachEntityClick("#production", e.production ?? e.production_dc);
+		this.attachEntityClick("#self-consumption", e.production);
+		this.attachEntityClick("#battery-charge", e.battery_charge);
+		this.attachEntityClick("#battery-discharge", e.battery_discharge);
+		this.attachEntityClick("#feed-in", e.feed_in);
+		this.attachEntityClick("#grid-import", e.grid_import);
+		this.attachEntityClick("#consumption", e.consumption);
+		this.attachEntityClick("#wallbox-row", e.wallbox);
+		this.attachEntityClick("#heatpump-row", e.heatpump);
   }
 
   updateDynamicDom() {
@@ -2212,16 +2332,16 @@ tree: `
 		const productionValue =
 			data.hasProductionDc
 				? `
-					${this.fmtKwh(data.production)}
 					<span class="dc-production">
 						${sunSmall}
 						${this.fmtKwh(data.productionDc)}
 						<span class="dc-label">DC</span>
 					</span>
+					${this.fmtKwh(data.production)}
 				`
 				: `
-					${this.fmtKwh(data.production)}
 					<span class="dc-label">AC</span>
+					${this.fmtKwh(data.production)}
 				`;
 		
 		const productionEl =
@@ -2233,6 +2353,12 @@ tree: `
 
     this.setText("#self-consumption-value", this.fmtKwh(data.selfConsumption));
     this.setText("#feed-in-value", this.fmtKwh(data.feedIn));
+
+    this.setText("#battery-charge-value", this.fmtKwh(data.battery_charge));
+    this.setText("#battery-discharge-value", this.fmtKwh(data.battery_discharge));
+    this.setVisible("#battery-charge", data.hasBatteryCharge);
+    this.setVisible("#battery-discharge", data.hasBatteryDischarge);
+
     this.setText("#grid-import-value", this.fmtKwh(data.gridImport));
     this.setText("#consumption-value", this.fmtKwh(data.consumption));
 
@@ -2248,14 +2374,21 @@ tree: `
 		const co2El = this.shadowRoot?.querySelector("#co2-value");
 		const treeCount = Math.round(data.trees);
 		const treeLabel = treeCount === 1 ? "Baum" : "Bäume";
-
+		
 		co2El.innerHTML = `
-		  ${this.fmtKg(data.co2Saved)}
-		  <span class="tree-count">
-		    ${tree}
-		    <span class="tree-value">${treeCount}</span>
-		    <span class="tree-label">${treeLabel}</span>
-		  </span>
+			${this.fmtKg(data.co2Saved)}
+		
+			${
+				treeCount >= 1
+					? `
+						<span class="tree-count">
+							${tree}
+							<span class="tree-value">${treeCount}</span>
+							<span class="tree-label">${treeLabel}</span>
+						</span>
+					`
+					: ""
+			}
 		`;
   }
 }
@@ -2356,6 +2489,16 @@ class AuriAgerBaseCard extends HTMLElement {
     return AuriAgerBaseCard.COLOR_SCHEMES[this.themeMode()]
       ?? AuriAgerBaseCard.COLOR_SCHEMES.light;
   }
+  
+  accentColor() {
+    const C = this.colors();
+    const scheme_accent_color = C.accent;
+
+	  return (
+  	  this.config.accent_color ??
+    	this.config.accent ?? scheme_accent_color
+  	);
+	}
 
   hasEntity(entity) {
     return typeof entity === "string" && entity.trim().length > 0;
@@ -2438,8 +2581,29 @@ class AuriAgerBaseCard extends HTMLElement {
     return icons[name] ?? "mdi:chart-box-outline";
   }
 
-  baseStyles() {
+	fireMoreInfo(entityId) {
+		if (!entityId) return;
+	
+		this.dispatchEvent(
+			new CustomEvent("hass-more-info", {
+				bubbles: true,
+				composed: true,
+				detail: { entityId },
+			})
+		);
+	}
+	
+	attachEntityClick(selector, entityId) {
+		const el = this.shadowRoot?.querySelector(selector);
+		if (!el || !entityId) return;
+	
+		el.classList.add("clickable");
+		el.addEventListener("click", () => this.fireMoreInfo(entityId));
+	}
+
+  baseStyles(accent) {
     const C = this.colors();
+    const accent_color = accent ?? C.accent;
 
     return `
       ha-card {
@@ -2463,18 +2627,32 @@ class AuriAgerBaseCard extends HTMLElement {
         width: 8px;
         height: 42px;
         border-radius: 4px;
-        background: ${C.accent};
+        background: ${accent_color};
       }
+
+			.clickable {
+				cursor: pointer;
+			}
+			
+			.clickable:hover {
+				opacity: .82;
+			}
+			
+			.clickable:active {
+				opacity: .65;
+			}
 
       .title {
         font-size: 20px;
         font-weight: 750;
         color: ${C.value};
         line-height: 1.1;
+        padding-bottom: 3px;
+        transform: translateY(-2px);
       }
 
       .subtitle {
-        margin-top: 4px;
+        margin-top: 1px;
         font-size: 13px;
         color: ${C.small};
       }
@@ -2551,7 +2729,7 @@ class AuriAgerFinanceCard extends AuriAgerBaseCard {
 
     return `
       <style>
-        ${this.baseStyles()}
+        ${this.baseStyles(this.config.accent_color)}
 
         .rows {
           display: grid;
@@ -2630,6 +2808,15 @@ class AuriAgerFinanceCard extends AuriAgerBaseCard {
         </div>
       </ha-card>
     `;
+    
+    // Finance, zeilenweise
+		const e = this.config.entities ?? {};
+		
+		this.attachEntityClick("#direct-saving", e.direct_saving);
+		this.attachEntityClick("#battery-saving", e.battery_saving);
+		this.attachEntityClick("#feed-in-revenue", e.feed_in_revenue);
+		this.attachEntityClick("#grid-import-cost", e.grid_import_cost);
+		this.attachEntityClick("#fictional-total", e.fictional_total);
   }
 
   updateDynamicDom() {
@@ -2653,11 +2840,18 @@ class AuriAgerFinanceCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-finance-card", AuriAgerFinanceCard);
 
+/*
+ * Auri Ager Gauge Card
+ *
+ * Display percent radius in Auri Ager design language
+ */
+ 
 class AuriAgerGaugeCard extends AuriAgerBaseCard {
   static getStubConfig() {
     return {
       type: "custom:auri-ager-gauge-card",
       title: "Autarkie",
+      subtitle: "",
       entity: "",
       theme: "auto",
       accent: "autarky",
@@ -2684,7 +2878,7 @@ class AuriAgerGaugeCard extends AuriAgerBaseCard {
 
     return `
       <style>
-        ${this.baseStyles()}
+        ${this.baseStyles(accent)}
 
         ha-card {
           display: grid;
@@ -2696,21 +2890,26 @@ class AuriAgerGaugeCard extends AuriAgerBaseCard {
 				  margin-bottom: 8px;
 				}
 
-      .accent {
-        width: 8px;
-        height: 42px;
-        border-radius: 4px;
-        background: ${accent};
-      }
-
-        .gauge-wrap {
-          display: grid;
-          place-items: center;
-          padding: 0;
-        }
+				.title {
+					font-size: clamp(15px, 4.2vw, 20px);
+					font-weight: 750;
+					color: ${C.value};
+					line-height: 1.05;
+				
+					white-space: nowrap;
+					overflow: hidden;
+					text-overflow: ellipsis;
+				}
+				
+				.gauge-wrap {
+					min-height: 120px;
+					display: grid;
+					place-items: center;
+					padding: 0;
+				}
 
         svg {
-          width: min(100%, 155px);
+          width: min(140px, 70%);
           height: auto;
           overflow: visible;
         }
@@ -2769,6 +2968,9 @@ class AuriAgerGaugeCard extends AuriAgerBaseCard {
         </div>
       </ha-card>
     `;
+    
+    // Gauge
+		this.attachEntityClick("ha-card", this.config.entity);
   }
 
   updateDynamicDom() {
@@ -2776,7 +2978,15 @@ class AuriAgerGaugeCard extends AuriAgerBaseCard {
     const circumference = 2 * Math.PI * 78;
     const dash = (pct / 100) * circumference;
 
-    this.setText("#gauge-title", this.config.title ?? "Gauge");
+		const isNarrow = this.offsetWidth < 180;
+		this.setText(
+			"#gauge-title",
+			isNarrow
+				? this.config.short_title ?? this.config.title
+				: this.config.title
+		);
+
+    //this.setText("#gauge-title", this.config.title ?? "Gauge");
     this.setText("#gauge-subtitle", this.config.subtitle ?? "");
     this.setText("#gauge-value", `${Math.round(pct)}%`);
     this.setText("#gauge-label", this.config.label ?? this.config.title ?? "");
@@ -2788,6 +2998,2735 @@ class AuriAgerGaugeCard extends AuriAgerBaseCard {
 }
 
 customElements.define("auri-ager-gauge-card", AuriAgerGaugeCard);
+
+
+/*
+ * Auri Ager Thermometer Card
+ *
+ * Display temperature values in Auri Ager design language
+ */
+
+class AuriAgerThermometerCard extends AuriAgerBaseCard {
+  static getStubConfig() {
+    return {
+      type: "custom:auri-ager-thermometer-card",
+      title: "Heizungsvorlauf",
+      subtitle: "Temperatur",
+      icon: "mdi:radiator",
+      entity: "sensor.heizkreis_vorlauf",
+      decimals: 1,
+      min: 20,
+      max: 60,
+      dots: "ten",
+      pointer: "arrow",
+      layout: "normal",
+      theme: "auto",
+      color_schema: "normal",
+      accent_color: "#5aa7d8",
+      ring_color: "#e65c4f",
+    };
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  accentColor() {
+    return this.config?.accent_color ?? this.config?.accent ?? "#5aa7d8";
+  }
+
+  stateSnapshot() {
+    const entity = this.config?.entity;
+    const state = entity ? this._hass?.states?.[entity] : null;
+    return `${entity ?? ""}:${state?.state ?? ""}`;
+  }
+
+  rawValue() {
+    const entity = this.config?.entity;
+    const state = entity ? this._hass?.states?.[entity] : null;
+    const value = Number(state?.state);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  minValue() {
+    const value = Number(this.config?.min ?? 0);
+    return Number.isFinite(value) ? value : 0;
+  }
+
+  maxValue() {
+    const value = Number(this.config?.max ?? 100);
+    return Number.isFinite(value) ? value : 100;
+  }
+
+  normalizedValue() {
+    const value = this.rawValue();
+    const min = this.minValue();
+    const max = this.maxValue();
+
+    if (value === null || max <= min) return 0;
+
+    return Math.max(0, Math.min(1, (value - min) / (max - min)));
+  }
+
+  valueText() {
+    const value = this.rawValue();
+    if (value === null) return "";
+
+    const decimals = this.config?.decimals ?? 1;
+
+    return `${value.toLocaleString("de-DE", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })} °C`;
+  }
+
+	ringColor() {
+		return this.config?.ring_color ?? this.accentColor();
+	}
+	
+	positionForValue(value) {
+		const min = this.minValue();
+		const max = this.maxValue();
+	
+		if (max <= min) return 0;
+	
+		return Math.max(0, Math.min(1, (value - min) / (max - min)));
+	}
+	
+	angleForRatio(ratio) {
+		return -210 + ratio * 240;
+	}
+
+	polarToCartesian(cx, cy, r, angleDeg) {
+		const rad = (angleDeg * Math.PI) / 180;
+	
+		return {
+			x: cx + r * Math.cos(rad),
+			y: cy + r * Math.sin(rad),
+		};
+	}
+	
+	arcPath(cx, cy, r, startAngle, endAngle) {
+		const start = this.polarToCartesian(cx, cy, r, startAngle);
+		const end = this.polarToCartesian(cx, cy, r, endAngle);
+		const largeArc = Math.abs(endAngle - startAngle) > 180 ? 1 : 0;
+	
+		return [
+			"M", start.x, start.y,
+			"A", r, r, 0, largeArc, 1, end.x, end.y,
+		].join(" ");
+	}
+
+	tickStep() {
+		if (this.config?.dots === "five") return 5;
+		if (this.config?.dots === "ten") return 10;
+		return null;
+	}
+	
+	tickDots() {
+		const step = this.tickStep();
+		if (!step) return "";
+	
+		const min = this.minValue();
+		const max = this.maxValue();
+		const start = Math.ceil(min / step) * step;
+		const values = [];
+	
+		for (let v = start; v <= max; v += step) {
+			values.push(v);
+		}
+	
+		return values
+			.map((v) => {
+				const ratio = this.positionForValue(v);
+				const angle = this.angleForRatio(ratio);
+				const rad = (angle * Math.PI) / 180;
+	
+				const x = 110 + Math.cos(rad) * 84;
+				const y = 110 + Math.sin(rad) * 84;
+	
+				const cls = v === 0 ? "tick-dot zero" : "tick-dot";
+	
+				return `<circle class="${cls}" cx="${x}" cy="${y}" r="${v === 0 ? 3.2 : 2.2}"></circle>`;
+			})
+			.join("");
+	}
+
+	scalePointForValue(value, radius = 98) {
+		const ratio = this.positionForValue(value);
+		const angle = this.angleForRatio(ratio);
+		return this.polarToCartesian(110, 110, radius, angle);
+	}
+
+  styles() {
+    const C = this.colors();
+    const accent = this.accentColor();
+    const ring = this.ringColor();
+
+    return `
+      <style>
+        ${this.baseStyles(accent)}
+
+        ha-card {
+          display: grid;
+          gap: 10px;
+          padding: 22px;
+          padding-bottom: 12px;
+        }
+
+        .header {
+          grid-template-columns: 8px minmax(0, 1fr) auto;
+        }
+
+        .thermo-icon {
+          justify-self: end;
+          align-self: center;
+          color: ${C.icon};
+          --mdc-icon-size: 30px;
+        }
+
+				.thermo-wrap {
+					position: relative;
+					display: block;
+					min-height: 0;
+					height: 170px;
+					margin-bottom: 0;
+					overflow: visible;
+				}
+				
+				.thermo-wrap svg {
+					position: absolute;
+					left: 50%;
+					top: 50%;
+					transform: translate(-50%, -50%);
+					display: block;
+				}
+				
+				ha-card.normal .thermo-wrap {
+					height: 185px;
+				}
+				
+				ha-card.small .thermo-wrap {
+					height: 118px;
+				}
+				
+        svg {
+          width: min(170px, 76%);
+          height: auto;
+          overflow: visible;
+        }
+
+				ha-card.normal svg {
+					width: min(204px, 82%);
+				}
+				
+				ha-card.small svg {
+					width: min(136px, 68%);
+				}
+
+        .track {
+          fill: none;
+          stroke: ${C.line};
+          stroke-width: 14;
+          stroke-linecap: round;
+        }
+
+				.fill {
+					fill: none;
+					stroke: ${ring};
+					stroke-width: 14;
+					stroke-linecap: butt;
+					transition: stroke-dasharray .25s ease;
+				}
+
+        .tick-dot {
+          fill: ${C.small};
+          opacity: .55;
+        }
+        
+        .tick-dot.zero {
+				  fill: ${ring};
+				  opacity: .9;
+				}
+
+				.scale-label {
+					font-size: 14px;
+					font-weight: 650;
+					fill: ${C.small};
+					text-anchor: middle;
+				}
+				
+				.zero-line {
+					stroke: ${C.small};
+					stroke-width: 2;
+					stroke-linecap: round;
+					opacity: .75;
+				}
+
+        .pointer {
+          fill: ${ring};
+          transform-origin: 110px 110px;
+          transition: transform .25s ease;
+        }
+
+        .value {
+          font-size: 28px;
+          font-weight: 850;
+          fill: ${C.value};
+          text-anchor: middle;
+        }
+
+        .range {
+          font-size: 14px;
+          font-weight: 650;
+          fill: ${C.small};
+          text-anchor: middle;
+        }
+
+        ha-card.small .value {
+          font-size: 24px;
+        }
+      </style>
+    `;
+  }
+
+  buildStaticDom() {
+    const layout = this.config?.layout ?? "normal";
+    const pointer = this.config?.pointer ?? "arrow";
+
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
+
+      <ha-card class="${layout}">
+        <div class="header">
+          <div class="accent"></div>
+          <div class="title-line">
+            <div id="thermo-title" class="title"></div>
+            <div id="thermo-subtitle" class="subtitle"></div>
+          </div>
+          <ha-icon id="thermo-icon" class="thermo-icon"></ha-icon>
+        </div>
+
+        <div class="thermo-wrap">
+          <svg viewBox="20 20 180 155">
+            <path
+              class="track"
+              d="M 43 153 A 78 78 0 1 1 177 153"
+            ></path>
+
+            <path
+              id="thermo-fill"
+              class="fill"
+              d="M 43 153 A 78 78 0 1 1 177 153"
+            ></path>
+
+            ${this.tickDots()}
+
+						<text id="thermo-min-label" class="scale-label"></text>
+						<text id="thermo-max-label" class="scale-label"></text>
+						<line id="thermo-zero-line" class="zero-line"></line>
+
+            ${
+              pointer === "arrow"
+                ? `
+                  <polygon
+                    id="thermo-pointer"
+                    class="pointer"
+                    points="110,28 104,44 116,44"
+                  ></polygon>
+                `
+                : ""
+            }
+
+            <text id="thermo-value" x="110" y="112" class="value"></text>
+            <!-- text id="thermo-range" x="110" y="136" class="range"></text --!>
+          </svg>
+        </div>
+      </ha-card>
+    `;
+  }
+
+  updateDynamicDom() {
+    const ratio = this.normalizedValue();
+    const pointer = this.config?.pointer ?? "arrow";
+
+    const arcLength = 245;
+    const dash = ratio * arcLength;
+
+    this.setText("#thermo-title", this.config?.title ?? "");
+    this.setText("#thermo-subtitle", this.config?.subtitle ?? "");
+    this.setText("#thermo-value", this.valueText());
+    /* this.setText(
+      "#thermo-range",
+      `${this.minValue()}–${this.maxValue()} °C`,
+    ); */
+
+    const icon = this.shadowRoot.querySelector("#thermo-icon");
+    if (icon) {
+      icon.setAttribute("icon", this.config?.icon ?? "mdi:thermometer");
+    }
+
+		const fill = this.shadowRoot.querySelector("#thermo-fill");
+		if (fill) {
+			if (pointer === "fill") {
+				fill.style.display = "";
+		
+				const endRatio = this.normalizedValue();
+				const startAngle = -210;
+				const endAngle = this.angleForRatio(endRatio);
+		
+				fill.setAttribute(
+					"d",
+					this.arcPath(110, 110, 78, startAngle, endAngle),
+				);
+			} else {
+				fill.style.display = "none";
+			}
+		}
+
+		const min = this.minValue();
+		const max = this.maxValue();
+		
+		const minPoint = this.scalePointForValue(min, 103);
+		const maxPoint = this.scalePointForValue(max, 103);
+		
+		const minLabel = this.shadowRoot.querySelector("#thermo-min-label");
+		if (minLabel) {
+			minLabel.setAttribute("x", minPoint.x);
+			minLabel.setAttribute("y", minPoint.y + 4);
+			minLabel.textContent = `${min}°`;
+		}
+		
+		const maxLabel = this.shadowRoot.querySelector("#thermo-max-label");
+		if (maxLabel) {
+			maxLabel.setAttribute("x", maxPoint.x);
+			maxLabel.setAttribute("y", maxPoint.y + 4);
+			maxLabel.textContent = `${max}°`;
+		}
+
+		const zeroLine = this.shadowRoot.querySelector("#thermo-zero-line");
+		
+		if (zeroLine) {
+			if (min < 0 && max > 0) {
+				const inner = this.scalePointForValue(0, 70);
+				const outer = this.scalePointForValue(0, 88);
+		
+				zeroLine.style.display = "";
+				zeroLine.setAttribute("x1", inner.x);
+				zeroLine.setAttribute("y1", inner.y);
+				zeroLine.setAttribute("x2", outer.x);
+				zeroLine.setAttribute("y2", outer.y);
+			} else {
+				zeroLine.style.display = "none";
+			}
+		}
+
+    const marker = this.shadowRoot.querySelector("#thermo-pointer");
+    if (marker) {
+      const angle = -210 + ratio * 240;
+      marker.style.transform = `rotate(${angle + 90}deg)`;
+    }
+  }
+}
+
+customElements.define("auri-ager-thermometer-card", AuriAgerThermometerCard);
+
+
+/*
+ * Auri Ager Value Card
+ *
+ * Single value card in Auri Ager design language
+ */
+
+class AuriAgerValueCard extends AuriAgerBaseCard {
+  static getStubConfig() {
+    return {
+      type: "custom:auri-ager-value-card",
+      title: "Wert",
+      short_title: "",
+      subtitle: "",
+      entity: "",
+      secondary: "",
+      icon: "mdi:information-outline",
+      theme: "auto",
+      layout: "normal",
+    };
+  }
+
+  getCardSize() {
+	  if (this.config?.layout === "nano") return 1;
+	  if (this.config?.layout === "tiny") return 1;
+  	return this.config?.layout === "small" ? 1 : 2;
+  }
+
+  stateSnapshot() {
+    const e1 = this.config?.entity;
+    const e2 = this.config?.secondary;
+    return [
+      e1 ? `${e1}:${this._hass?.states?.[e1]?.state ?? ""}` : "",
+      e2 ? `${e2}:${this._hass?.states?.[e2]?.state ?? ""}` : "",
+      this.offsetWidth,
+    ].join("|");
+  }
+
+  fmtValue(value, unit, decimals) {
+    const numeric = Number(value);
+
+    const text = Number.isFinite(numeric)
+      ? numeric.toLocaleString("de-DE", {
+          minimumFractionDigits: decimals ?? 0,
+          maximumFractionDigits: decimals ?? 2,
+        })
+      : String(value ?? "–");
+
+    return unit ? `${text} ${unit}` : text;
+  }
+
+  styles() {
+    const C = this.colors();
+
+    return `
+      <style>
+        ${this.baseStyles(this.config.accent_color)}
+
+        ha-card.small {
+          padding: 16px 18px;
+        }
+
+        ha-card.small .header {
+          margin-bottom: 10px;
+        }
+
+				ha-card.tiny {
+					padding: 18px 22px;
+				}
+				
+				ha-card.nano {
+					padding: 6px 8px;
+				}
+
+				ha-card.tiny .tiny-row {
+					display: grid;
+					grid-template-columns: 8px minmax(0, 1fr) 28px auto;
+					gap: 14px;
+					align-items: center;
+				}
+				
+				ha-card.tiny .tiny-row::before {
+					content: "";
+					width: 8px;
+					height: 42px;
+					border-radius: 4px;
+					background: ${this.config.accent_color ?? C.accent};
+				}
+				
+				ha-card.tiny .tiny-text {
+					min-width: 0;
+				}
+				
+				ha-card.tiny .title {
+					font-size: clamp(18px, 4vw, 20px);
+				}
+
+				ha-card.tiny .subtitle {
+					font-size: 13px;
+				}
+				
+				ha-card.tiny ha-icon {
+					align-self: center;
+					margin-top: 6px;
+				}
+				
+				ha-card.tiny .value {
+					font-size: clamp(18px, 4vw, 26px);
+					line-height: 1;
+					text-align: right;
+				}
+
+				ha-card.tiny .secondary-value {
+				  color: ${C.small};
+				  font-size: 16px;
+				}
+        
+				ha-card.tiny .values {
+					display: flex;
+					flex-direction: row;
+					align-items: baseline;
+					justify-content: flex-end;
+					gap: 22px;
+					white-space: nowrap;
+				}
+				
+				ha-card.nano .nano-row {
+					display: grid;
+					grid-template-columns: 6px minmax(0, 1fr) auto;
+					gap: 8px;
+					align-items: center;
+				}
+				
+				ha-card.nano .nano-accent {
+					width: 6px;
+					height: 24px;
+					border-radius: 3px;
+					background: ${this.config.accent_color ?? C.accent};
+				}
+				
+				ha-card.nano .nano-title {
+					font-size: 12px;
+					font-weight: 700;
+					color: ${C.small};
+					white-space: nowrap;
+					overflow: hidden;
+					text-overflow: ellipsis;
+				}
+				
+				ha-card.nano .value {
+					font-size: 20px;
+					font-weight: 780;
+				}
+
+        .title {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .value-wrap {
+          display: grid;
+          grid-template-columns: 32px 1fr;
+          gap: 14px;
+          align-items: end;
+          min-height: 86px;
+        }
+
+        ha-card.small .value-wrap {
+          min-height: 44px;
+        }
+
+        ha-icon {
+          color: ${C.icon};
+          --mdc-icon-size: 28px;
+        }
+
+        .values {
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 6px;
+          align-items: end;
+        }
+
+        .values.has-secondary {
+          grid-template-columns: auto auto;
+				  justify-content: end;
+				  gap: 22px;
+        }
+
+        .value {
+          color: ${C.value};
+          font-size: clamp(22px, 4vw, 30px);
+          font-weight: 780;
+          text-align: right;
+          line-height: 1.05;
+          white-space: nowrap;
+        }
+
+        .secondary-value {
+          color: ${C.small};
+          font-size: clamp(18px, 3.2vw, 24px);
+          text-align: right;
+        }
+
+				ha-card.small .value-wrap,
+				ha-card.tiny .value-wrap {
+					min-height: 0;
+				}
+				
+				ha-card.small {
+					padding-bottom: 14px;
+				}
+				
+				ha-card.tiny {
+					padding-bottom: 14px;
+				}
+      </style>
+    `;
+  }
+
+  buildStaticDom() {
+		const layout = this.config.layout ?? "normal";
+		const small = layout === "small";
+		const tiny = layout === "tiny";
+		const nano = layout === "nano";
+
+		let body;
+		
+		if (nano) {
+			body = `
+				<div class="nano-row">
+					<div class="nano-accent"></div>
+					<div class="nano-title" id="value-title"></div>
+					<div id="values" class="values">
+						<div id="value-main" class="value"></div>
+					</div>
+				</div>
+			`;
+		} else if (tiny) {
+			body = `
+				<div class="tiny-row">
+					<div class="tiny-text">
+						<div id="value-title" class="title"></div>
+						<div id="value-subtitle" class="subtitle"></div>
+					</div>
+					<ha-icon id="value-icon"></ha-icon>
+					<div id="values" class="values">
+						<div id="value-secondary" class="value secondary-value"></div>
+						<div id="value-main" class="value"></div>
+					</div>
+				</div>
+			`;
+		} else {
+			body = `
+				<div class="header">
+					<div class="accent"></div>
+					<div>
+						<div id="value-title" class="title"></div>
+						<div id="value-subtitle" class="subtitle"></div>
+					</div>
+				</div>
+		
+				<div class="value-wrap">
+					<ha-icon id="value-icon"></ha-icon>
+					<div id="values" class="values">
+						<div id="value-secondary" class="value secondary-value"></div>
+						<div id="value-main" class="value"></div>
+					</div>
+				</div>
+			`;
+		}
+
+		this.shadowRoot.innerHTML = `
+			${this.styles()}
+			<ha-card class="${nano ? "nano" : tiny ? "tiny" : small ? "small" : ""}">
+				${body}
+			</ha-card>
+		`;
+    
+    // Value
+		this.attachEntityClick("#value-main", this.config.entity);
+		this.attachEntityClick("#value-secondary", this.config.secondary);
+  }
+
+  updateDynamicDom() {
+    const entity = this.config.entity;
+    const secondary = this.config.secondary;
+
+    const state = entity ? this._hass?.states?.[entity] : null;
+    const secondaryState = secondary ? this._hass?.states?.[secondary] : null;
+
+    const isNarrow = this.offsetWidth < 180;
+
+		const iconEl = this.shadowRoot.querySelector("#value-icon");
+		
+		if (iconEl) {
+			iconEl.setAttribute("icon", this.config.icon ?? "mdi:information-outline");
+		
+			if (this.config.layout === "tiny" && isNarrow) {
+				iconEl.style.display = "none";
+			} else {
+				iconEl.style.display = "";
+			}
+		}
+
+    const title =
+      isNarrow && this.config.short_title
+        ? this.config.short_title
+        : this.config.title ?? state?.attributes?.friendly_name ?? "Wert";
+
+    const unit =
+      this.config.unit ??
+      state?.attributes?.unit_of_measurement ??
+      "";
+
+    const secondaryUnit =
+      this.config.secondary_unit ??
+      secondaryState?.attributes?.unit_of_measurement ??
+      "";
+
+    this.setText("#value-title", title);
+    this.setText("#value-subtitle", this.config.subtitle ?? "");
+
+    this.shadowRoot.querySelector("#value-icon")?.setAttribute(
+      "icon",
+      this.config.icon ?? "mdi:information-outline",
+    );
+
+    this.setText(
+      "#value-main",
+      this.fmtValue(state?.state, unit, this.config.decimals),
+    );
+
+    const valuesEl = this.shadowRoot.querySelector("#values");
+    const secondaryEl = this.shadowRoot.querySelector("#value-secondary");
+
+		const showSecondary =
+			this.config.layout !== "nano" &&
+			secondaryState;
+			//this.config.layout !== "tiny" &&
+
+		if (showSecondary && secondaryEl) {
+			valuesEl?.classList.add("has-secondary");
+			secondaryEl.style.display = "";
+		
+			this.setText(
+				"#value-secondary",
+				this.fmtValue(
+					secondaryState.state,
+					secondaryUnit,
+					this.config.secondary_decimals,
+				),
+			);
+		} else {
+			valuesEl?.classList.remove("has-secondary");
+		
+			if (secondaryEl) {
+				secondaryEl.style.display = "none";
+			}
+		}
+  }
+}
+
+customElements.define("auri-ager-value-card", AuriAgerValueCard);
+
+
+/*
+ * Auri Ager Entities Card
+ *
+ * Generic entity list card with optional header, row icons,
+ * multiple values, captions, dividers and status highlighting.
+ */
+
+class AuriAgerEntitiesCard extends AuriAgerBaseCard {
+  static getStubConfig() {
+    return {
+      type: "custom:auri-ager-entities-card",
+      title: "Entities",
+      subtitle: "",
+      header_icon: "mdi:format-list-bulleted",
+      accent_color: "#f5b82e",
+      theme: "auto",
+      show_header: true,
+      line_spacing: "normal",
+      column_width: 64,
+      caption: [],
+      entities: [],
+    };
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  accentColor() {
+    return this.config?.accent_color ?? this.config?.accent ?? "#f5b82e";
+  }
+
+  valueCount() {
+    const captionCount = this.config?.caption?.length ?? 0;
+    const rowMax = Math.max(
+      1,
+      ...(this.config?.entities ?? [])
+        .filter((row) => !row.divider)
+        .map((row) => this.rowValues(row).length),
+    );
+
+    return Math.max(captionCount, rowMax, 1);
+  }
+
+  rowValues(row) {
+    if (Array.isArray(row?.values)) return row.values;
+
+    const values = [];
+
+    if (row?.primary?.entity || row?.entity) {
+      values.push(row.primary ?? { entity: row.entity });
+    }
+
+    if (row?.secondary?.entity || row?.secondary_entity) {
+      values.push(row.secondary ?? { entity: row.secondary_entity });
+    }
+
+    return values;
+  }
+
+  entityState(entity) {
+    return entity ? this._hass?.states?.[entity] : null;
+  }
+
+  isActiveState(state) {
+    return [
+      "on",
+      "open",
+      "opening",
+      "active",
+      "playing",
+      "heat",
+      "heating",
+    ].includes(state?.state);
+  }
+
+	valueSlot(valueIndex, valueCount) {
+  	if (valueIndex === 0) return valueCount - 1;
+	  return valueIndex - 1;
+	}
+
+  fmtValue(value, unit = "", decimals = undefined) {
+    if (value === undefined || value === null || value === "") return "";
+
+    const num = Number(value);
+
+    if (!Number.isFinite(num)) {
+      return unit ? `${value} ${unit}` : `${value}`;
+    }
+
+    const d =
+      decimals !== undefined && decimals !== null
+        ? decimals
+        : Number.isInteger(num)
+          ? 0
+          : 1;
+
+    return `${num.toLocaleString("de-DE", {
+      minimumFractionDigits: d,
+      maximumFractionDigits: d,
+    })}${unit ? ` ${unit}` : ""}`;
+  }
+
+  fmtValueFor(valueCfg) {
+    const entity = valueCfg?.entity;
+    const state = this.entityState(entity);
+    if (!state) return "";
+
+    const unit =
+      valueCfg.unit ??
+      state.attributes?.unit_of_measurement ??
+      "";
+
+    return this.fmtValue(
+      state.state,
+      unit,
+      valueCfg.decimals,
+    );
+  }
+
+  spacingValue() {
+    const spacing = this.config?.line_spacing ?? "normal";
+
+    if (spacing === "narrow") return 4;
+    if (spacing === "comfort") return 14;
+
+    return 8;
+  }
+
+  stateSnapshot() {
+    const rows = this.config?.entities ?? [];
+
+    return rows
+      .flatMap((row) => {
+        if (row.divider) return ["divider"];
+
+        const valueEntities = this.rowValues(row)
+          .map((v) => v.entity)
+          .filter(Boolean);
+
+        const statusEntity = row.status?.entity;
+
+        return statusEntity
+          ? [...valueEntities, statusEntity]
+          : valueEntities;
+      })
+      .map((entity) => {
+        const state = this._hass?.states?.[entity];
+        return `${entity}:${state?.state ?? ""}`;
+      })
+      .join("|");
+  }
+
+  styles() {
+    const C = this.colors();
+    const spacing = this.spacingValue();
+    const valueCount = this.valueCount();
+		const columnWidth = this.config?.column_width ?? 64;
+
+    return `
+      <style>
+        ${this.baseStyles(this.accentColor())}
+
+        ha-card {
+          --auri-entity-value-count: ${valueCount};
+        }
+
+        ha-card.no-header .header {
+          display: none;
+        }
+
+        .header {
+          grid-template-columns: 8px minmax(0, 1fr) auto;
+        }
+
+        .header-icon {
+          justify-self: end;
+          align-self: center;
+          color: ${C.icon};
+          --mdc-icon-size: 28px;
+        }
+
+        .rows {
+          display: grid;
+          gap: ${spacing}px;
+        }
+
+        .caption-row,
+        .row {
+          display: grid;
+          grid-template-columns:
+            auto
+            minmax(0, 1fr)
+            minmax(0, auto);
+          gap: 14px;
+          align-items: center;
+        }
+        
+        .caption-row {
+          min-height: 20px;
+        }
+
+        .caption-spacer {
+          grid-column: 1 / 3;
+        }
+
+        .caption-values,
+        .row-values {
+          display: grid;
+          grid-template-columns:
+            repeat(var(--auri-entity-value-count), minmax(${columnWidth}px, 1fr));
+          gap: 22px;
+          align-items: baseline;
+          justify-content: end;
+          justify-self: end;
+        }
+        
+        .row-values.single-value-row {
+				  justify-self: stretch;
+				  width: 100%;
+				}
+
+				.row-values.single-value-row .row-value {
+					grid-column: 1 / -1;
+				  text-align: right;
+				}
+        
+        .caption-value {
+          font-size: 11px;
+          font-weight: 650;
+          color: ${C.small};
+          text-align: right;
+          white-space: nowrap;
+        }
+
+        .row {
+          min-height: 34px;
+        	grid-template-columns: auto minmax(0, 1fr) auto;
+        }
+
+        .row-icon {
+          color: ${C.icon};
+          --mdc-icon-size: 22px;
+        }
+
+        .row-icon.active {
+          color: ${this.accentColor()};
+        }
+
+        .row-title {
+          min-width: 0;
+          font-size: 15px;
+          font-weight: 650;
+          color: ${C.value};
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .row-value {
+          font-size: 15px;
+          font-weight: 760;
+          color: ${C.value};
+          white-space: nowrap;
+          text-align: right;
+        }
+
+        .row-value.muted {
+          color: ${C.small};
+          font-weight: 650;
+        }
+
+        .divider {
+          height: 1px;
+          background: ${C.line};
+          margin: 4px 0;
+        }
+
+        .clickable {
+          cursor: pointer;
+        }
+
+        .clickable:hover {
+          opacity: .82;
+        }
+
+        .clickable:active {
+          opacity: .65;
+        }
+      </style>
+    `;
+  }
+
+  buildStaticDom() {
+    const showHeader = this.config?.show_header ?? true;
+    const rows = this.config?.entities ?? [];
+    const captions = this.config?.caption ?? [];
+    const valueCount = this.valueCount();
+
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
+
+      <ha-card class="${showHeader ? "" : "no-header"}">
+        <div class="header">
+          <div class="accent"></div>
+          <div>
+            <div id="entities-title" class="title"></div>
+            <div id="entities-subtitle" class="subtitle"></div>
+          </div>
+          <ha-icon id="entities-header-icon" class="header-icon"></ha-icon>
+        </div>
+
+        <div id="entities-rows" class="rows">
+          ${
+            captions.length
+              ? `
+                <div class="caption-row">
+                  <div class="caption-spacer"></div>
+                  <div class="caption-values">
+										${Array.from({ length: valueCount })
+											.map((_, visibleIndex) => {
+												const sourceIndex =
+													visibleIndex === valueCount - 1
+														? 0
+														: visibleIndex + 1;
+										
+												const label = captions[sourceIndex]?.label ?? "";
+										
+												return `<div class="caption-value">${label}</div>`;
+											})
+											.join("")}
+                  </div>
+                </div>
+              `
+              : ""
+          }
+
+          ${rows
+            .map((row, index) => {
+              if (row.divider) {
+                return `<div class="divider"></div>`;
+              }
+
+              return `
+                <div class="row" data-index="${index}">
+                  <ha-icon class="row-icon" id="row-icon-${index}"></ha-icon>
+                  <div class="row-title" id="row-title-${index}"></div>
+                  <div class="row-values" id="row-values-${index}">
+                    ${Array.from({ length: valueCount })
+                      .map(
+                        (_, valueIndex) =>
+                          `<div
+													  class="row-value"
+													  id="row-value-${index}-${valueIndex}"
+													  data-row="${index}"
+													  data-value="${valueIndex}">
+													</div>`,
+                      )
+                      .join("")}
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
+        </div>
+      </ha-card>
+    `;
+
+		rows.forEach((row, index) => {
+			if (row.divider) return;
+		
+			const values = this.rowValues(row);
+			const rowEl = this.shadowRoot.querySelector(`.row[data-index="${index}"]`);
+		
+			if (rowEl) {
+				const firstEntity = values[0]?.entity ?? row.status?.entity;
+		
+				if (firstEntity) {
+					rowEl.classList.add("clickable");
+					rowEl.addEventListener("click", () => this.fireMoreInfo(firstEntity));
+				}
+			}
+		
+			values.forEach((valueCfg, valueIndex) => {
+				const slot = this.valueSlot(valueIndex, valueCount);
+			
+				const valueEl = this.shadowRoot.querySelector(
+					`#row-value-${index}-${slot}`,
+				);
+			
+				if (!valueEl || !valueCfg?.entity) return;
+			
+				valueEl.classList.add("clickable");
+				valueEl.addEventListener("click", (ev) => {
+					ev.stopPropagation();
+					this.fireMoreInfo(valueCfg.entity);
+				});
+			});
+		});
+  }
+
+  updateDynamicDom() {
+    const rows = this.config?.entities ?? [];
+    const valueCount = this.valueCount();
+
+    this.setText("#entities-title", this.config?.title ?? "");
+    this.setText("#entities-subtitle", this.config?.subtitle ?? "");
+
+    const headerIcon = this.shadowRoot.querySelector("#entities-header-icon");
+
+    if (headerIcon) {
+      headerIcon.setAttribute(
+        "icon",
+        this.config?.header_icon ?? "mdi:format-list-bulleted",
+      );
+    }
+
+    rows.forEach((row, index) => {
+      if (row.divider) return;
+
+      const values = this.rowValues(row);
+
+			const realValues = values.filter((v) => v && !v.empty);
+			const isSingleValueSpan = realValues.length === 1 && valueCount > 1;
+			
+			const rowValuesEl = this.shadowRoot.querySelector(
+				`#row-values-${index}`,
+			);
+			
+			if (rowValuesEl) {
+				rowValuesEl.classList.toggle("single-value-row", isSingleValueSpan);
+			}
+
+      const firstEntity = values[0]?.entity;
+      const firstState = this.entityState(firstEntity);
+
+      const statusEntity = row.status?.entity;
+      const statusState = this.entityState(statusEntity);
+      const active = this.isActiveState(statusState);
+
+      const icon = this.shadowRoot.querySelector(`#row-icon-${index}`);
+
+      if (icon) {
+        icon.setAttribute("icon", row.icon ?? "mdi:information-outline");
+        icon.classList.toggle("active", active);
+      }
+
+      this.setText(
+        `#row-title-${index}`,
+        row.title ??
+          firstState?.attributes?.friendly_name ??
+          firstEntity ??
+          "Entity",
+      );
+
+			// erst alle Slots dieser Zeile leeren
+			for (let slot = 0; slot < valueCount; slot++) {
+				const valueEl = this.shadowRoot.querySelector(
+					`#row-value-${index}-${slot}`,
+				);
+			
+				if (!valueEl) continue;
+			
+				valueEl.textContent = "";
+				valueEl.style.display = "none";
+				valueEl.style.gridColumn = "";
+				valueEl.classList.remove("muted");
+			}
+			
+			// dann echte Values in ihre sichtbaren Slots schreiben
+			values.forEach((valueCfg, valueIndex) => {
+				if (!valueCfg || valueCfg.empty) return;
+			
+				const slot = isSingleValueSpan
+					? 0
+					: this.valueSlot(valueIndex, valueCount);
+			
+				const valueEl = this.shadowRoot.querySelector(
+					`#row-value-${index}-${slot}`,
+				);
+			
+				if (!valueEl) return;
+			
+				const text = this.fmtValueFor(valueCfg);
+			
+				valueEl.textContent = text;
+				valueEl.style.display = text ? "" : "none";
+			
+				valueEl.style.gridColumn = isSingleValueSpan
+					? `1 / -1`
+					: `${slot + 1}`;
+			
+				valueEl.classList.toggle(
+					"muted",
+					valueCfg?.muted ?? valueIndex !== 0,
+				);
+			});
+
+    });
+  }
+}
+
+customElements.define("auri-ager-entities-card", AuriAgerEntitiesCard);
+
+/*
+ * Auri Ager Micro Entity Card
+ *
+ * Horizontal micro entity tiles with primary/secondary values
+ * and optional status highlighting.
+ */
+
+class AuriAgerMicroEntityCard extends AuriAgerBaseCard {
+  static getStubConfig() {
+    return {
+      type: "custom:auri-ager-micro-entity-card",
+      accent_color: "#f5b82e",
+      theme: "auto",
+      columns: "auto",
+      entities: [],
+    };
+  }
+
+  getCardSize() {
+    return 1;
+  }
+
+  accentColor() {
+    return this.config?.accent_color ?? this.config?.accent ?? "#f5b82e";
+  }
+
+  rowValues(item) {
+    if (Array.isArray(item?.values)) return item.values;
+
+    const values = [];
+
+    if (item?.entity) {
+      values.push({ entity: item.entity, decimals: item.decimals });
+    }
+
+    if (item?.secondary?.entity || item?.secondary_entity) {
+      values.push(item.secondary ?? { entity: item.secondary_entity });
+    }
+
+    return values;
+  }
+
+  entityState(entity) {
+    return entity ? this._hass?.states?.[entity] : null;
+  }
+
+  isActiveState(state) {
+    return [
+      "on",
+      "open",
+      "opening",
+      "active",
+      "playing",
+      "heat",
+      "heating",
+    ].includes(state?.state);
+  }
+
+  fmtValue(value, unit = "", decimals = undefined) {
+    if (value === undefined || value === null || value === "") return "";
+
+    const num = Number(value);
+
+    if (!Number.isFinite(num)) {
+      return unit ? `${value} ${unit}` : `${value}`;
+    }
+
+    const d =
+      decimals !== undefined && decimals !== null
+        ? decimals
+        : Number.isInteger(num)
+          ? 0
+          : 1;
+
+    return `${num.toLocaleString("de-DE", {
+      minimumFractionDigits: d,
+      maximumFractionDigits: d,
+    })}${unit ? ` ${unit}` : ""}`;
+  }
+
+  fmtValueFor(valueCfg) {
+    const state = this.entityState(valueCfg?.entity);
+    if (!state) return "";
+
+    const unit =
+      valueCfg.unit ??
+      state.attributes?.unit_of_measurement ??
+      "";
+
+    return this.fmtValue(state.state, unit, valueCfg.decimals);
+  }
+
+  stateSnapshot() {
+    return (this.config?.entities ?? [])
+      .flatMap((item) => {
+        const values = this.rowValues(item)
+          .map((v) => v.entity)
+          .filter(Boolean);
+
+        const status = item.status?.entity;
+
+        return status ? [...values, status] : values;
+      })
+      .map((entity) => {
+        const state = this._hass?.states?.[entity];
+        return `${entity}:${state?.state ?? ""}`;
+      })
+      .join("|");
+  }
+
+  styles() {
+    const C = this.colors();
+
+    const columns =
+      this.config?.columns === "auto"
+        ? "repeat(auto-fit, minmax(92px, 1fr))"
+        : `repeat(${this.config?.columns ?? 2}, minmax(0, 1fr))`;
+
+    return `
+      <style>
+        ${this.baseStyles(this.accentColor())}
+
+        ha-card {
+          padding: 12px;
+        }
+
+        .micro-grid {
+          display: grid;
+          grid-template-columns: ${columns};
+          gap: 10px;
+        }
+
+        .micro {
+          min-height: 86px;
+          border-radius: 18px;
+          background: rgba(0,0,0,.025);
+          display: grid;
+          grid-template-rows: auto auto auto auto;
+          place-items: center;
+          text-align: center;
+          padding: 10px 8px;
+          overflow: hidden;
+        }
+
+        .micro-icon {
+          color: ${C.icon};
+          --mdc-icon-size: 26px;
+          margin-bottom: 4px;
+        }
+
+        .micro-icon.active {
+          color: ${this.accentColor()};
+        }
+
+        .micro-title {
+          max-width: 100%;
+          font-size: 13px;
+          font-weight: 700;
+          color: ${C.value};
+          line-height: 1.1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        .micro-primary {
+          margin-top: 5px;
+          font-size: 18px;
+          font-weight: 820;
+          color: ${C.value};
+          line-height: 1;
+          white-space: nowrap;
+        }
+
+        .micro-secondary {
+          margin-top: 4px;
+          font-size: 12px;
+          font-weight: 650;
+          color: ${C.small};
+          line-height: 1;
+          white-space: nowrap;
+        }
+
+        .clickable {
+          cursor: pointer;
+        }
+
+        .clickable:hover {
+          opacity: .82;
+        }
+
+        .clickable:active {
+          opacity: .65;
+        }
+      </style>
+    `;
+  }
+
+  buildStaticDom() {
+    const items = this.config?.entities ?? [];
+
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
+
+      <ha-card>
+        <div class="micro-grid">
+          ${items
+            .map((item, index) => `
+              <div class="micro clickable" data-index="${index}">
+                <ha-icon class="micro-icon" id="micro-icon-${index}"></ha-icon>
+                <div class="micro-title" id="micro-title-${index}"></div>
+                <div class="micro-primary" id="micro-primary-${index}"></div>
+                <div class="micro-secondary" id="micro-secondary-${index}"></div>
+              </div>
+            `)
+            .join("")}
+        </div>
+      </ha-card>
+    `;
+
+    items.forEach((item, index) => {
+      const values = this.rowValues(item);
+      const primaryEntity = values[0]?.entity;
+      const secondaryEntity = values[1]?.entity;
+      const statusEntity = item.status?.entity;
+
+      const tile = this.shadowRoot.querySelector(`.micro[data-index="${index}"]`);
+      const primaryEl = this.shadowRoot.querySelector(`#micro-primary-${index}`);
+      const secondaryEl = this.shadowRoot.querySelector(`#micro-secondary-${index}`);
+      const iconEl = this.shadowRoot.querySelector(`#micro-icon-${index}`);
+
+      if (tile && primaryEntity) {
+        tile.addEventListener("click", () => this.fireMoreInfo(primaryEntity));
+      }
+
+      if (primaryEl && primaryEntity) {
+        primaryEl.classList.add("clickable");
+        primaryEl.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this.fireMoreInfo(primaryEntity);
+        });
+      }
+
+      if (secondaryEl && secondaryEntity) {
+        secondaryEl.classList.add("clickable");
+        secondaryEl.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this.fireMoreInfo(secondaryEntity);
+        });
+      }
+
+      if (iconEl && statusEntity) {
+        iconEl.classList.add("clickable");
+        iconEl.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this.fireMoreInfo(statusEntity);
+        });
+      }
+    });
+  }
+
+  updateDynamicDom() {
+    const items = this.config?.entities ?? [];
+
+    items.forEach((item, index) => {
+      const values = this.rowValues(item);
+
+      const primary = values[0];
+      const secondary = values[1];
+
+      const statusState = this.entityState(item.status?.entity);
+      const active = this.isActiveState(statusState);
+
+      const firstState = this.entityState(primary?.entity);
+
+      const icon = this.shadowRoot.querySelector(`#micro-icon-${index}`);
+      if (icon) {
+        icon.setAttribute("icon", item.icon ?? "mdi:information-outline");
+        icon.classList.toggle("active", active);
+				if (active) {
+					icon.style.color = "";
+				} else {
+				  icon.style.color =
+				    item.icon_color ??
+				    this.colors().icon;
+				}
+      }
+
+      this.setText(
+        `#micro-title-${index}`,
+        item.title ??
+          firstState?.attributes?.friendly_name ??
+          primary?.entity ??
+          "Entity",
+      );
+
+      this.setText(
+        `#micro-primary-${index}`,
+        primary ? this.fmtValueFor(primary) : "",
+      );
+
+      const secondaryText = secondary ? this.fmtValueFor(secondary) : "";
+      const secondaryEl = this.shadowRoot.querySelector(`#micro-secondary-${index}`);
+      if (secondaryEl) {
+        secondaryEl.style.display = secondaryText ? "" : "none";
+        this.setText(`#micro-secondary-${index}`, secondaryText);
+      }
+    });
+  }
+}
+
+customElements.define("auri-ager-micro-entity-card", AuriAgerMicroEntityCard);
+
+/*
+ * Auri Ager Progress Card
+ *
+ */
+
+class AuriAgerProgressCard extends AuriAgerBaseCard {
+  static getStubConfig() {
+    return {
+      type: "custom:auri-ager-progress-card",
+      entity: "",
+      title: "Progress Bar",
+      subtitle: "",
+      icon: "mdi:battery-high",
+      bar_color: "#f5b82e",
+      layout: "normal",
+    };
+  }
+
+  getCardSize() {
+    return 2;
+  }
+
+  accentColor() {
+    return this.config?.accent_color ?? this.config?.accent ?? this.config?.bar_color ?? "#f5b82e";
+  }
+
+  stateSnapshot() {
+    const entity = this.config?.entity;
+    const state = entity ? this._hass?.states?.[entity] : null;
+    return `${entity ?? ""}:${state?.state ?? ""}`;
+  }
+
+  valueNumber() {
+    const entity = this.config?.entity;
+    const state = entity ? this._hass?.states?.[entity] : null;
+    const value = Number(state?.state);
+    return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0;
+  }
+
+  valueText() {
+    const entity = this.config?.entity;
+    const decimals = this.config?.decimals ?? 0;
+    const state = entity ? this._hass?.states?.[entity] : null;
+    const value = Number(state?.state);
+
+    if (!Number.isFinite(value)) return "";
+
+    return `${value.toLocaleString("de-DE", {
+		  minimumFractionDigits: decimals,
+		  maximumFractionDigits: decimals,
+		})} %`;
+  }
+
+  styles() {
+    const C = this.colors();
+    const accent = this.accentColor();
+
+    return `
+      <style>
+        ${this.baseStyles(accent)}
+
+        ha-card {
+          padding: 22px;
+        }
+
+        .progress-icon {
+          color: ${C.icon};
+          --mdc-icon-size: 30px;
+        }
+
+        .bar {
+          height: 12px;
+          border-radius: 999px;
+          overflow: hidden;
+          background: ${C.line};
+        }
+
+        .fill {
+          height: 100%;
+          width: 0%;
+          border-radius: 999px;
+          background: ${accent};
+          transition: width .25s ease;
+        }
+
+        .value {
+          font-size: 20px;
+          font-weight: 800;
+          color: ${C.value};
+          white-space: nowrap;
+        }
+
+        ha-card.normal .progress-head {
+          display: grid;
+          grid-template-columns: 8px minmax(0, 1fr) auto;
+          gap: 14px;
+          align-items: center;
+        }
+
+        ha-card.normal .bar {
+          margin-top: 18px;
+        }
+
+        ha-card.small {
+          padding-top: 14px;
+          padding-bottom: 14px;
+        }
+
+        ha-card.small .progress-head {
+          display: grid;
+          grid-template-columns: 8px minmax(0, 1fr) auto;
+          gap: 14px;
+          align-items: center;
+        }
+
+        ha-card.small .title-line {
+          display: block;
+          min-width: 0;
+        }
+
+        ha-card.small .subtitle {
+        	display: block;
+          font-size: 14px;
+          margin-top: 1px;
+        }
+
+        ha-card.small .progress-body {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          gap: 14px;
+          align-items: center;
+          margin-top: 12px;
+        }
+
+        ha-card.tiny {
+          padding-top: 10px;
+          padding-bottom: 10px;
+        }
+
+        ha-card.tiny .progress-head {
+          display: grid;
+          grid-template-columns: minmax(0, auto) minmax(80px, 1fr) auto;
+          gap: 12px;
+          align-items: center;
+        }
+
+        ha-card.tiny .accent,
+        ha-card.tiny .subtitle,
+        ha-card.tiny .progress-icon {
+          display: none;
+        }
+
+        ha-card.tiny .title {
+          font-size: 16px;
+          line-height: 1;
+          transform: translateY(2px);
+        }
+
+        ha-card.tiny .value {
+          font-size: 16px;
+          font-weight: 800;
+        }
+
+        ha-card.tiny .bar {
+          height: 10px;
+        }
+      </style>
+    `;
+  }
+
+  buildStaticDom() {
+    const layout = this.config?.layout ?? "normal";
+
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
+
+      <ha-card class="${layout}">
+        ${layout === "tiny" ? `
+          <div class="progress-head">
+            <div id="progress-title" class="title"></div>
+            <div class="bar">
+              <div id="progress-fill" class="fill"></div>
+            </div>
+            <div id="progress-value" class="value"></div>
+          </div>
+        ` : `
+          <div class="progress-head">
+            <div class="accent"></div>
+            <div class="title-line">
+              <div id="progress-title" class="title"></div>
+              <div id="progress-subtitle" class="subtitle"></div>
+            </div>
+            <ha-icon id="progress-icon" class="progress-icon"></ha-icon>
+          </div>
+
+          ${layout === "small" ? `
+            <div class="progress-body">
+              <div class="bar">
+                <div id="progress-fill" class="fill"></div>
+              </div>
+              <div id="progress-value" class="value"></div>
+            </div>
+          ` : `
+            <div class="progress-body">
+              <div id="progress-value" class="value" style="text-align:right;margin-top:12px;"></div>
+              <div class="bar">
+                <div id="progress-fill" class="fill"></div>
+              </div>
+            </div>
+          `}
+        `}
+      </ha-card>
+    `;
+  }
+
+  updateDynamicDom() {
+    this.setText("#progress-title", this.config?.title ?? "");
+    this.setText("#progress-subtitle", this.config?.subtitle ?? "");
+    this.setText("#progress-value", this.valueText());
+
+    const icon = this.shadowRoot.querySelector("#progress-icon");
+    if (icon) {
+      icon.setAttribute("icon", this.config?.icon ?? "mdi:battery-high");
+    }
+
+    const fill = this.shadowRoot.querySelector("#progress-fill");
+    if (fill) {
+      fill.style.width = `${this.valueNumber()}%`;
+    }
+  }
+}
+
+customElements.define("auri-ager-progress-card", AuriAgerProgressCard);
+
+  
+
+/*
+ * Auri Ager Switch Card
+ *
+ */
+
+class AuriAgerSwitchCard extends AuriAgerBaseCard {
+	static getStubConfig() {
+		return {
+			type: "custom:auri-ager-switch-card",
+			title: "Schalter",
+			subtitle: "",
+			entity: "",
+			icon: "mdi:lightbulb",
+			accent_color: "#f5b82e",
+			layout: "normal",
+			theme: "auto",
+		};
+	}
+
+	getCardSize() {
+		const layout = this.config?.layout ?? "normal";
+	
+		// layout: large   # viel Weißraum, Icon unten rechts
+		// layout: normal  # kompakter Standard
+		// layout: small   # Titel/Subtitel + Icon rechts
+		// layout: tiny    # nur Accent + Titel
+		if (layout === "large") return 2;
+	
+		return 1;
+	}
+
+	stateSnapshot() {
+		const entity = this.config?.entity;
+	
+		return entity
+			? `${entity}:${this._hass?.states?.[entity]?.state ?? ""}`
+			: "";
+	}
+
+	toggleEntity() {
+		const entity = this.config?.entity;
+		if (!entity || !this._hass) return;
+	
+		this._hass.callService("homeassistant", "toggle", {
+			entity_id: entity,
+		});
+	}
+
+	styles() {
+		const C = this.colors();
+	
+		return `
+			<style>
+				${this.baseStyles(this.config.accent_color)}
+	
+				.switch-row {
+					display: grid;
+					grid-template-columns: 8px minmax(0, 1fr) auto;
+					gap: 14px;
+					align-items: start;
+				}
+				
+				.switch-text {
+					min-width: 0;
+				}
+				
+				.switch-icon {
+					justify-self: end;
+					color: ${C.icon};
+					--mdc-icon-size: 30px;
+				}
+				
+				/* large: Icon unten rechts mit Luft */
+				ha-card.large .switch-row {
+					min-height: 96px;
+				}
+				
+				ha-card.large .switch-icon {
+					align-self: end;
+				}
+				
+				/* normal: Icon etwa auf Subtitle-Baseline */
+				ha-card.normal .switch-row {
+					min-height: 64px;
+				}
+				
+				ha-card.normal .switch-icon {
+					align-self: center;
+					margin-top: 20px;
+				}
+				
+				/* small: Icon auf Titel/Subtitel-Zeile */
+				ha-card.small {
+					padding-top: 8px;
+					padding-bottom: 8px;
+				}
+
+				ha-card.small .switch-row {
+					min-height: 50px;
+					align-items: center;
+				}
+				
+				ha-card.small .switch-icon {
+					align-self: center;
+				}
+				
+				/* tiny: kompakt */
+				ha-card.tiny .switch-text {
+				  display: flex;
+				  align-items: baseline;
+				  gap: 14px;
+				  min-width: 0;
+				}
+
+				ha-card.tiny .title {
+					font-size: 16px;
+					font-weight: 700;
+					line-height: 1;
+				}
+				
+				ha-card.tiny .subtitle {
+					display: block;
+					font-size: 11px;
+					line-height: 1;
+					margin-top: 0;
+				  transform: translateY(-1px);
+				}
+				
+				ha-card.tiny {
+					padding-top: 8px;
+					padding-bottom: 8px;
+				}
+				
+				ha-card.tiny .accent {
+					height: 28px;
+				}
+				
+				ha-card.tiny .switch-row {
+					grid-template-columns: 8px minmax(0, 1fr);
+					align-items: center;
+					min-height: 28px;
+				}
+				
+				@media (max-width: 360px) {
+					ha-card.tiny .switch-text {
+						display: none;
+					}
+				
+					ha-card.tiny .subtitle {
+						display: block;
+						margin-top: 0;
+					}
+				}
+	
+				.icon {
+					justify-self: end;
+				}
+	
+				ha-icon {
+					color: ${C.icon};
+					--mdc-icon-size: 30px;
+				}
+			</style>
+		`;
+	}
+
+	buildStaticDom() {
+		const layout = this.config.layout ?? "normal";
+		const tiny = layout === "tiny";
+	
+		this.shadowRoot.innerHTML = `
+			${this.styles()}
+	
+			<ha-card id="switch-card" class="${layout}">
+				<div class="switch-row">
+					<div id="accent" class="accent"></div>
+	
+					<div class="switch-text">
+						<div id="switch-title" class="title"></div>
+						<div id="switch-subtitle" class="subtitle"></div>
+					</div>
+	
+					${tiny ? "" : `
+						<ha-icon id="switch-icon" class="switch-icon"></ha-icon>
+					`}
+				</div>
+			</ha-card>
+		`;
+	
+		const card = this.shadowRoot.querySelector("#switch-card");
+		card?.addEventListener("click", () => this.toggleEntity());
+		
+		card?.addEventListener("contextmenu", (ev) => {
+			ev.preventDefault();
+			this.fireMoreInfo(this.config.entity);
+		});
+	}
+
+	updateDynamicDom() {
+		const state = this._hass?.states?.[this.config.entity];
+		const isOn = ["on", "open", "active", "playing"].includes(state?.state);
+	
+		const C = this.colors();
+	
+		const offAccent = this.themeMode() === "dark"
+			? "rgba(255,255,255,.16)"
+			: "rgba(0,0,0,.07)";
+		
+		const accent = isOn
+			? (this.config.accent_color ?? "#f5b82e")
+			: offAccent;
+	
+		const iconColor =
+			isOn
+				? accent
+				: C.icon;
+	
+		this.setText(
+			"#switch-title",
+			this.config.title ??
+				state?.attributes?.friendly_name ??
+				"Schalter",
+		);
+	
+		this.setText(
+			"#switch-subtitle",
+			this.config.subtitle ?? "",
+		);
+	
+		const icon =
+			this.shadowRoot.querySelector(
+				"#switch-icon",
+			);
+	
+		if (icon) {
+			icon?.setAttribute(
+				"icon",
+				this.config.icon ??
+					"mdi:lightbulb",
+			);
+	
+			icon.style.color = iconColor;
+		}
+
+		this.shadowRoot
+			.querySelector("#accent")
+			.style.background =
+				accent;
+	}
+
+}
+
+customElements.define("auri-ager-switch-card", AuriAgerSwitchCard);
+ 
+
+
+
+/*
+ * Auri Ager Control Card
+ *
+ * Action / cover control card in Auri Ager design language.
+ */
+
+class AuriAgerControlCard extends AuriAgerBaseCard {
+  static getStubConfig() {
+    return {
+      type: "custom:auri-ager-control-card",
+      title: "Schalter",
+      subtitle: "",
+      entity: "",
+      status_entity: "",
+      icon: "mdi:gesture-tap",
+      icon_on: "",
+      icon_off: "",
+      status_on: "Aktiv",
+      status_off: "Inaktiv",
+      accent_color: "#f5b82e",
+      layout: "normal",
+      theme: "auto",
+      mode: "action",
+    };
+  }
+
+  getCardSize() {
+    const layout = this.config?.layout ?? "normal";
+    return layout === "large" ? 2 : 1;
+  }
+
+  stateSnapshot() {
+    const entity = this.config?.entity;
+    const status = this.config?.status_entity;
+
+    return [
+      entity ? `${entity}:${this._hass?.states?.[entity]?.state ?? ""}` : "",
+      entity ? `${entity}:${this._hass?.states?.[entity]?.attributes?.current_position ?? ""}` : "",
+      status ? `${status}:${this._hass?.states?.[status]?.state ?? ""}` : "",
+      this.offsetWidth,
+    ].join("|");
+  }
+
+  accentColor() {
+    return this.config?.accent_color ?? this.config?.accent ?? "#f5b82e";
+  }
+
+  statusState() {
+    const id = this.config?.status_entity || this.config?.entity;
+    return id ? this._hass?.states?.[id] : null;
+  }
+
+  isActiveState(state) {
+    return ["on", "open", "opening", "active", "playing"].includes(state?.state);
+  }
+
+  currentIcon(active) {
+    if (active && this.config.icon_on) return this.config.icon_on;
+    if (!active && this.config.icon_off) return this.config.icon_off;
+    return this.config.icon ?? "mdi:gesture-tap";
+  }
+
+  runAction() {
+    const entity = this.config?.entity;
+    if (!entity || !this._hass) return;
+
+    const domain = entity.split(".")[0];
+
+    if (domain === "script") {
+      this._hass.callService("script", "turn_on", { entity_id: entity });
+      return;
+    }
+
+    if (domain === "button") {
+      this._hass.callService("button", "press", { entity_id: entity });
+      return;
+    }
+
+    this._hass.callService("homeassistant", "toggle", { entity_id: entity });
+  }
+
+  coverAction(service) {
+    const entity = this.config?.entity;
+    if (!entity || !this._hass) return;
+
+    this._hass.callService("cover", service, { entity_id: entity });
+  }
+  
+  coverPosition() {
+	  const cover =
+  	  this._hass?.states?.[this.config.entity];
+
+	  return cover?.attributes?.current_position;
+	}
+
+	coverStatusText() {
+		const pos = this.coverPosition();
+	
+		if (pos === undefined || pos === null)
+			return "";
+	
+		if (pos === 0)
+			return "Geschlossen";
+	
+		if (pos >= 90)
+			return "Offen";
+	
+		return `${pos}%`;
+	}
+
+  styles() {
+    const C = this.colors();
+
+    return `
+      <style>
+        ${this.baseStyles(this.accentColor())}
+
+        .switch-row {
+          display: grid;
+          grid-template-columns: 8px minmax(0, 1fr) auto;
+          gap: 14px;
+          align-items: start;
+        }
+
+        .switch-text {
+          min-width: 0;
+        }
+
+        .switch-icon {
+          justify-self: end;
+          align-self: end;
+          color: ${C.icon};
+          --mdc-icon-size: 30px;
+          grid-column: 3;
+          grid-row: 2;
+        }
+
+        .cover-controls {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          justify-self: end;
+          grid-column: 3;
+          grid-row: 1;
+        }
+
+        .cover-controls button {
+          border: 0;
+          border-radius: 8px;
+          background: rgba(0,0,0,.06);
+          width: 30px;
+          height: 22px;
+          display: grid;
+          place-items: center;
+          cursor: pointer;
+          padding: 0;
+        }
+
+        .cover-controls button:active {
+          opacity: .65;
+        }
+
+        .cover-controls ha-icon {
+          --mdc-icon-size: 16px;
+          color: ${C.value};
+        }
+        
+        .cover-text {
+					font-size: 14px;
+					font-weight: 500;
+					color: ${C.subtitle};
+					margin-right: 18px;
+					white-space: nowrap;
+				}
+
+/* large: viel Weißraum, Icon unten rechts */
+ha-card.large .switch-row {
+  min-height: 132px;
+  align-items: start;
+}
+
+ha-card.large .switch-icon {
+  justify-self: end;
+  align-self: end;
+  margin: 0;
+  --mdc-icon-size: 30px;
+  grid-column: 3;
+  grid-row: 2;
+}
+
+/* normal: Standardkarte */
+ha-card.normal .switch-row {
+  min-height: 96px;
+  align-items: start;
+}
+
+ha-card.normal .switch-icon {
+  justify-self: end;
+  align-self: end;
+  margin: 0;
+  --mdc-icon-size: 30px;
+  grid-column: 3;
+  grid-row: 2;
+}
+
+/* small: Listenelement mit optionalem Subtitle */
+ha-card.small {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+ha-card.small .switch-row {
+  min-height: 50px;
+  align-items: center;
+}
+
+ha-card.small .switch-icon {
+  justify-self: end;
+  align-self: center;
+  margin: 0;
+  --mdc-icon-size: 26px;
+  transform: translateY(-1px);
+  grid-column: 3;
+  grid-row: 1;
+}
+
+ha-card.small .switch-text {
+  display: grid;
+  gap: 3px;
+}
+
+/* tiny: kompakt, ohne Subtitle */
+ha-card.tiny {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+ha-card.tiny .accent {
+  height: 28px;
+}
+
+ha-card.tiny .switch-row {
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 28px;
+}
+
+ha-card.tiny .switch-text {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+}
+
+ha-card.tiny .title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+ha-card.tiny .subtitle {
+  display: none;
+}
+
+ha-card.tiny .switch-icon {
+  justify-self: end;
+  align-self: center;
+  margin: 0;
+  --mdc-icon-size: 26px;
+  transform: translateY(-1px);
+  grid-column: 3;
+  grid-row: 1;
+}
+
+        @media (max-width: 360px) {
+          ha-card.tiny .switch-text {
+            display: none;
+          }
+        }
+
+        ha-icon {
+          color: ${C.icon};
+          --mdc-icon-size: 30px;
+        }
+      </style>
+    `;
+  }
+
+  buildStaticDom() {
+    const layout = this.config?.layout ?? "normal";
+
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
+
+      <ha-card id="switch-card" class="${layout}">
+        <div class="switch-row">
+          <div id="accent" class="accent"></div>
+
+          <div class="switch-text">
+            <div id="switch-title" class="title"></div>
+            <div id="switch-subtitle" class="subtitle"></div>
+          </div>
+
+          <div class="cover-controls">
+          	<div id="cover-position" class="cover-text"></div>
+            <button id="cover-open" aria-label="Öffnen">
+              <ha-icon icon="mdi:chevron-up"></ha-icon>
+            </button>
+            <button id="cover-stop" aria-label="Stopp">
+              <ha-icon icon="mdi:square"></ha-icon>
+            </button>
+            <button id="cover-close" aria-label="Schließen">
+              <ha-icon icon="mdi:chevron-down"></ha-icon>
+            </button>
+          </div>
+
+          <ha-icon id="switch-icon" class="switch-icon"></ha-icon>
+        </div>
+      </ha-card>
+    `;
+
+    const card = this.shadowRoot.querySelector("#switch-card");
+
+    if (this.config.mode === "cover") {
+      card?.addEventListener("click", () => {
+        this.fireMoreInfo(this.config.entity);
+      });
+    } else {
+      card?.addEventListener("click", () => this.runAction());
+    }
+
+    card?.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      this.fireMoreInfo(this.config.status_entity || this.config.entity);
+    });
+
+    this.shadowRoot.querySelector("#cover-open")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this.coverAction("open_cover");
+    });
+
+    this.shadowRoot.querySelector("#cover-stop")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this.coverAction("stop_cover");
+    });
+
+    this.shadowRoot.querySelector("#cover-close")?.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this.coverAction("close_cover");
+    });
+  }
+
+  updateDynamicDom() {
+    const layout = this.config?.layout ?? "normal";
+    const tiny = layout === "tiny";
+    const isCover = this.config?.mode === "cover";
+
+    const statusState = this.statusState();
+    const active = this.isActiveState(statusState);
+
+    const C = this.colors();
+
+    const offAccent =
+      this.themeMode() === "dark"
+        ? "rgba(255,255,255,.16)"
+        : "rgba(0,0,0,.07)";
+
+    const accentBase = this.accentColor();
+    const accent = active ? accentBase : offAccent;
+    const iconColor = active ? accentBase : C.icon;
+
+    this.setText(
+      "#switch-title",
+      this.config.title ??
+        statusState?.attributes?.friendly_name ??
+        "Schalter",
+    );
+
+    this.setText("#switch-subtitle", this.config.subtitle ?? "");
+
+    const icon = this.shadowRoot.querySelector("#switch-icon");
+
+		if (isCover) {
+	    this.setText("#cover-position", this.coverStatusText() ?? "");
+		}
+
+    if (icon) {
+      icon.setAttribute("icon", this.currentIcon(active));
+      icon.style.color = iconColor;
+      icon.style.display = tiny && isCover ? "none" : "";
+    }
+
+    const accentEl = this.shadowRoot.querySelector("#accent");
+    if (accentEl) {
+      accentEl.style.background = accent;
+    }
+
+    const coverControls = this.shadowRoot.querySelector(".cover-controls");
+    if (coverControls) {
+      coverControls.style.display = isCover ? "flex" : "none";
+    }
+  }
+}
+
+customElements.define("auri-ager-control-card", AuriAgerControlCard);
+
+/*
+ * Auri Ager Load Breakdown Card
+ *
+ */
+
+class AuriAgerLoadBreakdownCard extends AuriAgerBaseCard {
+  static getStubConfig() {
+    return {
+      type: "custom:auri-ager-load-breakdown-card",
+      title: "Verbrauchsanalyse",
+      subtitle: "aktuelle Verbraucher",
+      source: "",
+      entities: [],
+      accent_color: "#5aa7d8",
+    };
+  }
+
+  getCardSize() {
+    return 4;
+  }
+
+  stateSnapshot() {
+    const source = this.config?.source;
+    const entities = this.config?.entities ?? [];
+    return [
+      source ? `${source}:${this._hass?.states?.[source]?.state ?? ""}` : "",
+      ...entities.map((e) => {
+        const id = typeof e === "string" ? e : e.entity;
+        return `${id}:${this._hass?.states?.[id]?.state ?? ""}`;
+      }),
+    ].join("|");
+  }
+
+  value(entityId) {
+    const raw = this._hass?.states?.[entityId]?.state;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  fmtW(value) {
+    return `${Math.round(value).toLocaleString("de-DE")} W`;
+  }
+
+  styles() {
+    const C = this.colors();
+
+    return `
+      <style>
+        ${this.baseStyles(this.config.accent_color)}
+
+        .summary {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 10px;
+          margin-bottom: 16px;
+        }
+
+        .pill {
+          border-radius: 16px;
+          background: ${C.subtleBg};
+          padding: 12px 14px;
+        }
+
+        .pill-label {
+          font-size: 12px;
+          color: ${C.small};
+          margin-bottom: 4px;
+        }
+
+        .pill-value {
+          font-size: 20px;
+          font-weight: 780;
+          color: ${C.value};
+        }
+
+        .rows {
+          display: grid;
+          gap: 0;
+        }
+
+        .row {
+          display: grid;
+          grid-template-columns: 34px 1fr auto;
+          gap: 12px;
+          align-items: center;
+          padding: 12px 0;
+          border-top: 1px solid ${C.separator};
+        }
+
+        ha-icon {
+          color: ${C.icon};
+          --mdc-icon-size: 24px;
+        }
+
+        .name {
+          color: ${C.text};
+          font-size: 15px;
+        }
+
+        .value {
+          color: ${C.value};
+          font-size: 16px;
+          font-weight: 760;
+          white-space: nowrap;
+        }
+
+        .rest .name,
+        .rest .value {
+          font-weight: 780;
+        }
+      </style>
+    `;
+  }
+
+  buildStaticDom() {
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
+
+      <ha-card>
+        <div class="header">
+          <div class="accent"></div>
+          <div>
+            <div id="title" class="title"></div>
+            <div id="subtitle" class="subtitle"></div>
+          </div>
+        </div>
+
+        <div class="summary">
+          <div class="pill">
+            <div class="pill-label">Gesamt</div>
+            <div id="total" class="pill-value"></div>
+          </div>
+          <div class="pill">
+            <div class="pill-label">Bekannt</div>
+            <div id="known" class="pill-value"></div>
+          </div>
+          <div class="pill">
+            <div class="pill-label">Rest</div>
+            <div id="rest" class="pill-value"></div>
+          </div>
+        </div>
+
+        <div id="rows" class="rows"></div>
+      </ha-card>
+    `;
+  }
+
+  updateDynamicDom() {
+    const source = this.config.source;
+    const entries = this.config.entities ?? [];
+
+    const total = this.value(source);
+
+    const items = entries
+      .map((entry) => {
+        const entity = typeof entry === "string" ? entry : entry.entity;
+        const state = this._hass?.states?.[entity];
+        const value = this.value(entity);
+
+        return {
+          entity,
+          value,
+          name:
+            entry.name ??
+            state?.attributes?.friendly_name ??
+            entity,
+          icon:
+            entry.icon ??
+            state?.attributes?.icon ??
+            "mdi:flash",
+        };
+      })
+      .sort((a, b) => b.value - a.value);
+
+    const known = items.reduce((sum, item) => sum + item.value, 0);
+    const rest = Math.max(0, total - known);
+
+    this.setText("#title", this.config.title ?? "Verbrauchsanalyse");
+    this.setText("#subtitle", this.config.subtitle ?? "");
+    this.setText("#total", this.fmtW(total));
+    this.setText("#known", this.fmtW(known));
+    this.setText("#rest", this.fmtW(rest));
+
+    const rows = this.shadowRoot.querySelector("#rows");
+
+		rows.innerHTML = `
+			${items.map((item) => `
+				<div class="row clickable" data-entity="${item.entity}">
+					<ha-icon icon="${item.icon}"></ha-icon>
+					<div class="name">${item.name}</div>
+					<div class="value">${this.fmtW(item.value)}</div>
+				</div>
+			`).join("")}
+		
+			<div class="row rest">
+				<ha-icon icon="mdi:home-lightning-bolt-outline"></ha-icon>
+				<div class="name">Nicht zugeordnet</div>
+				<div class="value">${this.fmtW(rest)}</div>
+			</div>
+		`;
+		
+		rows.querySelectorAll("[data-entity]").forEach((el) => {
+			el.addEventListener("click", () => {
+				this.fireMoreInfo(el.dataset.entity);
+			});
+		});
+
+  }
+}
+
+customElements.define("auri-ager-load-breakdown-card", AuriAgerLoadBreakdownCard);
+
+
 
 window.customCards = window.customCards || [];
 window.customCards.push({
@@ -2802,6 +5741,454 @@ window.customCards.push({
   description: "Calm percentage gauge card",
   preview: true,
 });
+window.customCards.push({
+  type: "auri-ager-value-card",
+  name: "Auri Ager Value",
+  description: "Single value card in Auri Ager design language",
+  preview: true,
+});
+
+
+/*
+ * Auri Ager Container Card
+ *
+ * Wraps arbitrary Lovelace cards in Auri Ager design language.
+ */
+
+class AuriAgerContainerCard extends AuriAgerBaseCard {
+	static getStubConfig() {
+		return {
+			type: "custom:auri-ager-container-card",
+			title: "Container",
+			subtitle: "",
+			accent_color: "#f5b82e",
+	
+			show_inner_border: true,
+			content_padding: 12,
+			hide_inner_header: false,
+			content_height: null,
+	
+			cards: [],
+		};
+	}
+
+  setConfig(config) {
+    super.setConfig(config);
+
+    this._cards = [];
+  }
+
+  getCardSize() {
+    return 4;
+  }
+
+  stateSnapshot() {
+    return JSON.stringify(this.config?.cards ?? []);
+  }
+
+	styles() {
+		const C = this.colors();
+	
+		const showBorder =
+			this.config.show_inner_border ?? true;
+	
+		const padding =
+			this.config.content_padding ?? 12;
+	
+		const height =
+			this.config.content_height;
+	
+		return `
+			<style>
+				${this.baseStyles(this.config.accent_color)}
+	
+				ha-card {
+					padding: 22px;
+				}
+	
+				.content {
+					display: grid;
+					gap: 12px;
+					padding: ${padding}px;
+				}
+	
+				.content > * {
+					overflow: hidden;
+					border: ${showBorder ? `1px solid ${C.cardBorder}` : "none"};
+					border-radius: 20px;
+					${height ? `max-height: ${height}px;` : ""}
+				}
+			</style>
+		`;
+	}
+
+  async buildStaticDom() {
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
+
+      <ha-card>
+        <div class="header">
+          <div class="accent"></div>
+          <div>
+            <div id="container-title" class="title"></div>
+            <div id="container-subtitle" class="subtitle"></div>
+          </div>
+        </div>
+
+        <div id="container-content" class="content"></div>
+      </ha-card>
+    `;
+
+    await this.buildChildCards();
+  }
+
+	async buildChildCards() {
+		const content = this.shadowRoot.querySelector("#container-content");
+		if (!content) return;
+	
+		content.innerHTML = "";
+		this._cards = [];
+	
+		const helpers = await window.loadCardHelpers();
+		const cards = this.config.cards ?? [];
+	
+		for (const cardConfig of cards) {
+			const card = await helpers.createCardElement(cardConfig);
+			card.hass = this._hass;
+	
+			if ((this.config.content_padding ?? 12) === 0) {
+				card.style.padding = "0";
+				card.style.margin = "0";
+			}
+	
+			this._cards.push(card);
+			content.appendChild(card);
+	
+			if (this.config.hide_inner_header) {
+				card.updateComplete?.then(() => {
+					const root = card.shadowRoot ?? card;
+	
+					root.querySelector(".header")?.remove();
+					root.querySelector(".card-header")?.remove();
+					root.querySelector("h1")?.remove();
+				});
+			}
+		}
+	}
+
+  updateDynamicDom() {
+    this.setText("#container-title", this.config.title ?? "");
+    this.setText("#container-subtitle", this.config.subtitle ?? "");
+
+    for (const card of this._cards ?? []) {
+      card.hass = this._hass;
+    }
+  }
+}
+
+customElements.define("auri-ager-container-card", AuriAgerContainerCard);
+
+
+/*
+ * Auri Ager Markdown Card
+ *
+ */
+
+class AuriAgerMarkdownCard extends AuriAgerBaseCard {
+  static getStubConfig() {
+    return {
+      type: "custom:auri-ager-markdown-card",
+      title: "Markdown",
+      subtitle: "",
+      icon: "mdi:text-box-outline",
+      content: "# Hello Auri\n\nMarkdown content...",
+      accent_color: "#5aa7d8",
+    };
+  }
+
+  getCardSize() {
+    return 3;
+  }
+
+  accentColor() {
+    return this.config?.accent_color ?? this.config?.accent ?? "#5aa7d8";
+  }
+
+  stateSnapshot() {
+    return this.config?.content ?? "";
+  }
+
+  escapeHtml(text) {
+    return `${text ?? ""}`
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  inlineMarkdown(text) {
+    return this.escapeHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.+?)\*/g, "<em>$1</em>")
+      .replace(/`(.+?)`/g, "<code>$1</code>");
+  }
+
+  renderMarkdown(content) {
+    const lines = `${content ?? ""}`.split("\n");
+    const html = [];
+    let inList = false;
+    let inCode = false;
+    let codeLines = [];
+
+    const closeList = () => {
+      if (inList) {
+        html.push("</ul>");
+        inList = false;
+      }
+    };
+
+    lines.forEach((line) => {
+      if (line.trim().startsWith("```")) {
+        if (inCode) {
+          html.push(`<pre><code>${this.escapeHtml(codeLines.join("\n"))}</code></pre>`);
+          codeLines = [];
+          inCode = false;
+        } else {
+          closeList();
+          inCode = true;
+        }
+        return;
+      }
+
+      if (inCode) {
+        codeLines.push(line);
+        return;
+      }
+
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        closeList();
+        html.push(`<div class="md-space"></div>`);
+        return;
+      }
+
+      if (trimmed.startsWith("- ")) {
+        if (!inList) {
+          html.push("<ul>");
+          inList = true;
+        }
+        html.push(`<li>${this.inlineMarkdown(trimmed.slice(2))}</li>`);
+        return;
+      }
+
+      closeList();
+
+      if (trimmed.startsWith("### ")) {
+        html.push(`<h3>${this.inlineMarkdown(trimmed.slice(4))}</h3>`);
+      } else if (trimmed.startsWith("## ")) {
+        html.push(`<h2>${this.inlineMarkdown(trimmed.slice(3))}</h2>`);
+      } else if (trimmed.startsWith("# ")) {
+        html.push(`<h1>${this.inlineMarkdown(trimmed.slice(2))}</h1>`);
+      } else {
+        html.push(`<p>${this.inlineMarkdown(trimmed)}</p>`);
+      }
+    });
+
+    closeList();
+
+    return html.join("");
+  }
+
+  styles() {
+    const C = this.colors();
+    const accent = this.accentColor();
+
+    return `
+      <style>
+        ${this.baseStyles(accent)}
+
+        .header {
+          grid-template-columns: 8px minmax(0, 1fr) auto;
+        }
+
+				ha-card.no-content .header,
+				ha-card.small.no-content .header {
+				  margin-bottom: 0;
+				}
+
+				ha-card.small {
+				  padding-top: 16px;
+				  padding-bottom: 10px;
+				}
+
+				ha-card.small .accent {
+					height: 28px;
+				}
+				
+				ha-card.small .markdown-icon {
+					--mdc-icon-size: 22px;
+					transform: translateY(-2px);
+				}
+				
+				ha-card.small .header {
+					margin-bottom: 0;
+				}
+
+				ha-card.small .title {
+					font-size: 16px;
+					transform: translateY(4px);
+				}
+				
+				ha-card.small .subtitle {
+					margin-left: 12px;
+					transform: translateY(4px);
+				}
+
+				ha-card.small .header > div:nth-child(2) {
+				  display: flex;
+				  align-items: baseline;
+				  gap: 12px;
+				}
+
+				ha-card.no-content {
+					padding-bottom: 14px;
+				}
+				
+				ha-card.small.no-content {
+					padding-bottom: 12px;
+				}
+
+        .markdown-icon {
+          justify-self: end;
+          align-self: center;
+          color: ${C.icon};
+          --mdc-icon-size: 30px;
+        }
+
+        .markdown-content {
+          color: ${C.value};
+          font-size: 14px;
+          line-height: 1.45;
+          margin-top: 0;
+				  margin-bottom: 0;
+        }
+        
+        .markdown-content.has-content {
+				  margin-bottom: 8px;
+				}
+
+        .markdown-content h1,
+        .markdown-content h2,
+        .markdown-content h3 {
+          margin: 0 0 8px 0;
+          line-height: 1.15;
+          color: ${C.value};
+        }
+
+        .markdown-content h1 {
+          font-size: 20px;
+          font-weight: 800;
+        }
+
+        .markdown-content h2 {
+          font-size: 17px;
+          font-weight: 760;
+        }
+
+        .markdown-content h3 {
+          font-size: 15px;
+          font-weight: 720;
+        }
+
+        .markdown-content p {
+          margin: 0 0 8px 0;
+        }
+
+        .markdown-content ul {
+          margin: 0 0 8px 18px;
+          padding: 0;
+        }
+
+        .markdown-content li {
+          margin: 2px 0;
+        }
+
+        .markdown-content code {
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+          font-size: .92em;
+          background: rgba(0,0,0,.045);
+          border-radius: 6px;
+          padding: 1px 5px;
+        }
+
+        .markdown-content pre {
+          margin: 8px 0;
+          padding: 10px 12px;
+          border-radius: 12px;
+          background: rgba(0,0,0,.045);
+          overflow-x: auto;
+        }
+
+        .markdown-content pre code {
+          background: transparent;
+          padding: 0;
+        }
+
+        .md-space {
+          height: 4px;
+        }
+      </style>
+    `;
+  }
+
+  buildStaticDom() {
+  	const layout = this.config?.layout ?? "normal";
+
+    this.shadowRoot.innerHTML = `
+      ${this.styles()}
+
+      <ha-card class="${layout}">
+        <div class="header">
+          <div class="accent"></div>
+          <div>
+            <div id="markdown-title" class="title"></div>
+            <div id="markdown-subtitle" class="subtitle"></div>
+          </div>
+          <ha-icon id="markdown-icon" class="markdown-icon"></ha-icon>
+        </div>
+
+        <div id="markdown-content" class="markdown-content"></div>
+      </ha-card>
+    `;
+  }
+
+  updateDynamicDom() {
+    this.setText("#markdown-title", this.config?.title ?? "");
+    this.setText("#markdown-subtitle", this.config?.subtitle ?? "");
+		const card = this.shadowRoot.querySelector("ha-card");
+    const icon = this.shadowRoot.querySelector("#markdown-icon");
+		const content = this.shadowRoot.querySelector("#markdown-content");
+
+    if (icon) {
+      icon.setAttribute("icon", this.config?.icon ?? "mdi:text-box-outline");
+    }
+		
+		if (content && card) {
+			const raw = this.config?.content ?? "";
+			const hasContent = raw.trim().length > 0;
+		
+			card.classList.toggle("has-content", hasContent);
+			card.classList.toggle("no-content", !hasContent);
+		
+			content.style.display = hasContent ? "" : "none";
+			content.innerHTML = hasContent ? this.renderMarkdown(raw) : "";
+		}
+  }
+}
+
+customElements.define("auri-ager-markdown-card", AuriAgerMarkdownCard);
 
 /* ==========================================================================
  * Auri Ager Sun
