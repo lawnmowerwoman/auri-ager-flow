@@ -1,22 +1,32 @@
 # Auri Ager Framework
 
+![Auri Ager Dashboard](Screenshot.png)
+
 A calm, opinionated Home Assistant energy dashboard suite with a shared visual language.
+
+Current release: 1.0
+Status: Stable
+License: Apache 2.0
 
 Auri Ager is designed to show energy systems as quiet, readable instruments instead of noisy alarm panels. Motion indicates that energy is flowing. Values show how much energy is flowing.
 
 ## Included Cards
 
-The bundled framework file contains these cards:
-
 | Card | Type | Purpose |
-|---|---|---|
-| Flow | `custom:auri-ager-flow-card` | Live energy flow and current topology |
-| Summary | `custom:auri-ager-summary-card` | Energy balance for day, month, year or total |
-| Finance | `custom:auri-ager-finance-card` | Energy savings, costs and calculated balance |
-| Gauge | `custom:auri-ager-gauge-card` | Small percentage KPI gauge |
-| Sun | `custom:auri-ager-sun-card` | Sun position, elevation and daylight visualization |
-
-The Status card is intentionally not included in this bundle yet.
+|-------|-------|----------|
+| Flow | `custom:auri-ager-flow-card` | Live energy flow and topology |
+| Summary | `custom:auri-ager-summary-card` | Energy balance and production summaries |
+| Finance | `custom:auri-ager-finance-card` | Savings, revenue and energy costs |
+| Gauge | `custom:auri-ager-gauge-card` | Compact KPI ring visualization |
+| Thermometer | `custom:auri-ager-thermometer-card` | Temperature and range visualization |
+| Progress | `custom:auri-ager-progress-card` | Linear KPI and capacity indicators |
+| Entities | `custom:auri-ager-entities-card` | Flexible multi-column entity display |
+| Value | `custom:auri-ager-value-card` | Single KPI display |
+| Micro Entity | `custom:auri-ager-micro-entity-card` | Small information tiles |
+| Camera | `custom:auri-ager-camera-card` | Camera and image display |
+| Markdown | `custom:auri-ager-markdown-card` | Headlines and formatted text content |
+| Status | `custom:auri-ager-status-card` | Compact system status display |
+| Sun | `custom:auri-ager-sun-card` | Sun position and daylight visualization |
 
 ## Installation
 
@@ -423,10 +433,23 @@ Auri Ager avoids visual panic. Animation remains calm. Values carry magnitude. O
 
 The target is a dashboard that still makes sense when a system has fewer sensors than the original development installation.
 
+## Framework Philosophy
+
+All cards share the same design language:
+
+- Consistent typography
+- Consistent spacing
+- Shared accent system
+- Shared theme handling
+- YAML-first configuration
+- Optional visual editors where practical
+
+Cards are designed to work together as a dashboard framework rather than as isolated components.
+
 ## License
 
 Apache License 2.0
 
-## Credits
-
-Built with care, iteration, visual tuning and a lot of field testing by Steffi and Auri ✨
+Built with care, iteration, visual tuning, field testing
+and an unreasonable amount of pixel-perfect discussions
+by Steffi and Auri ✨
