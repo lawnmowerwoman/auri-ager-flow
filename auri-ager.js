@@ -9,31 +9,16 @@
  *
  * Copyright (c) 2026 Stefanie Ramroth
  * Licensed under the Apache License, Version 2.0
- *
- * Assembled by 00Auri ✨
- * Source modules included below without minification for easier debugging.
- */
-
-
-/* ==========================================================================
- * Auri Ager Flow
- * Source: auri-ager-flow-card(19).js
- * ========================================================================== */
-
-/*
- * Auri Ager Flow
- * Calm energy flow visualization for Home Assistant
- *
- * Copyright (c) 2026 Stefanie Ramroth
- *
- * Licensed under the Apache License, Version 2.0
  * You may obtain a copy of the License at:
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
+ * Assembled by 00Auri ✨
+ * Source modules included below without minification for easier debugging.
+ *
  * ----------------------------------------------------------------------------
- * Version: 0.2
- * Status : HACS Initial Release
+ * Version: 1.0.1
+ * Status : Stable Release
  *
  * Release history:
  *
@@ -60,6 +45,33 @@
  * Visual Editor
  * Hide Zeroes option
  *
+ * 1.0.0
+ * - Initial public release
+ * - Flow Card
+ * - Summary Card
+ * - Finance Card
+ * - Gauge Card
+ * - Sun Card
+ * - Status Card
+ * - Progress Card
+ * - Entity Grid Card
+ * - Entities Card
+ * - Thermometer Card
+ * - Markdown Card
+ * - Visual Editors
+ * - Dark Mode
+ * - Theme System
+ * - Clickable Entities
+ * - Flow Animations
+ * - Hide Zeroes
+ * 
+ * 1.0.1
+ * - Fixed Flow header scaling on small displays
+ * - Added max_width option to Flow Card
+ * - Improved Entity Grid auto layout
+ * - Renamed MicroEntityCard to EntityGridCard
+ * - Minor visual adjustments
+ *
  * Planned:
  * - Localization / configurable labels
  *
@@ -67,7 +79,13 @@
  * Motion indicates flow.
  * Values indicate magnitude.
  * Calmness is a feature.
- * ----------------------------------------------------------------------------
+ */
+
+
+/*
+ * Auri Ager Flow
+ *
+ * Calm energy flow visualization for Home Assistant
  */
 class AuriAgerFlowCard extends HTMLElement {
 	static getConfigElement() {
@@ -78,11 +96,8 @@ class AuriAgerFlowCard extends HTMLElement {
 		return {
 			type: "custom:auri-ager-flow-card",
 			theme: "auto",
-			external: {
-				mode: "parallel_pv",
-				label: "Externe Quelle",
-			},
-			entities: {},
+			hide_zeros: false,
+			max_width: 1200,
 		};
 	}
 
@@ -821,25 +836,28 @@ class AuriAgerFlowCard extends HTMLElement {
 					</div>
 				</div>
 
-        <svg class="flow-svg" viewBox="${layout.viewBox}">
-          <defs>
-            ${this.arrowDef("flow-arrow")}
-          </defs>
+				<div class="flow-container">
+					<svg class="flow-svg" viewBox="${layout.viewBox}">
+						<defs>
+							${this.arrowDef("flow-arrow")}
+						</defs>
+	
+						${this.flowSvg("solar", "pv-path", p.pv, 7)}
+						${this.flowSvg("external", "external-path", p.external, 8)}
+						${this.flowSvg("external-to-pv", "external-to-pv-path", p.externalToPv, 8)}
+						${this.flowSvg("grid", "grid-path", p.grid, 8)}
+						${this.flowSvg("battery", "battery-path", p.battery, 8)}
+						${this.flowSvg("wallbox", "wallbox-path", p.wallbox, 7)}
+						${this.flowSvg("wallbox-behind-home", "wallbox-behind-home-path", p.wallboxBehindHome, 7)}
+						${this.flowSvg("consumption", "consumption-path", p.consumption, 9)}
+						${this.flowSvg("heatpump", "heatpump-path", p.heatpump, 8)}
+						${this.flowSvg("home", "home-path", p.home, 9)}
+	
+						${this.staticRingsSvg()}
+						${this.staticNodesSvg()}
+					</svg>
+				</div>
 
-          ${this.flowSvg("solar", "pv-path", p.pv, 7)}
-          ${this.flowSvg("external", "external-path", p.external, 8)}
-          ${this.flowSvg("external-to-pv", "external-to-pv-path", p.externalToPv, 8)}
-          ${this.flowSvg("grid", "grid-path", p.grid, 8)}
-          ${this.flowSvg("battery", "battery-path", p.battery, 8)}
-          ${this.flowSvg("wallbox", "wallbox-path", p.wallbox, 7)}
-          ${this.flowSvg("wallbox-behind-home", "wallbox-behind-home-path", p.wallboxBehindHome, 7)}
-          ${this.flowSvg("consumption", "consumption-path", p.consumption, 9)}
-          ${this.flowSvg("heatpump", "heatpump-path", p.heatpump, 8)}
-          ${this.flowSvg("home", "home-path", p.home, 9)}
-
-          ${this.staticRingsSvg()}
-          ${this.staticNodesSvg()}
-        </svg>
       </ha-card>
     `;
 
@@ -1037,6 +1055,17 @@ class AuriAgerFlowCard extends HTMLElement {
   	//console.log("[AuriAgerFlow] updateDynamicDom called");
     const data = this.resolveData();
     //console.log("[AuriAgerFlow] data", data);
+		const maxWidth = this.config.max_width ?? 960;
+
+		const container =
+		  this.shadowRoot.querySelector(".flow-container");
+
+		if (container) {
+		  container.style.setProperty(
+		    "--auri-max-width",
+		    `${maxWidth}px`
+		  );
+		}
 
 		const compact =
 		  this.offsetWidth < 800;
@@ -1151,6 +1180,8 @@ class AuriAgerFlowCard extends HTMLElement {
 				}
 
         ha-card {
+        	width: 100%;
+				  margin-inline: auto;
           padding: 2px;
           border-radius: inherit;
           background: transparent;
@@ -1159,6 +1190,11 @@ class AuriAgerFlowCard extends HTMLElement {
 				  overflow: hidden;
         }
 
+				.flow-container {
+					width: 100%;
+					max-width: var(--auri-max-width, 1200px);
+					margin: 0 auto;
+				}
           /* background: ${COLORS.cardBg};
 					border: 1px solid ${COLORS.cardBorder}; */
 
@@ -1399,6 +1435,7 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 		};
 	
 		setValue("theme", theme);
+		setValue("max_width",this._config.max_width ?? 960);
 		setValue("external.mode", external.mode ?? "parallel_pv");
 		setValue("external.label", external.label ?? "Externe Quelle");
 		setValue("heatpump.mode", heatpump.mode ?? "behind_home");
@@ -1438,6 +1475,7 @@ class AuriAgerFlowCardEditor extends HTMLElement {
     if (!this._config || !this._hass) return;
 
     const theme = this._config.theme ?? "auto";
+    const maxWidth = this._config.max_width ?? 960;
     const external = this._config.external ?? {};
     const hideZeros = this._config.hide_zeros ?? false;
     const externalMode = external.mode ?? "parallel_pv";
@@ -1540,6 +1578,16 @@ class AuriAgerFlowCardEditor extends HTMLElement {
             </select>
           </label>
 
+					<label>
+						Maximale Breite
+						<input
+							type="number"
+							data-path="max_width"
+							min="600"
+							max="3000"
+							step="50">
+					</label>
+
           <label class="checkbox-row">
             <input type="checkbox" data-path="hide_zeros">
             Nullwerte ausblenden
@@ -1640,6 +1688,7 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 		}
 
     this.querySelector('[data-path="theme"]').value = theme;
+    this.querySelector('[data-path="max_width"]').value = maxWidth;
     this.querySelector('[data-path="external.mode"]').value = externalMode;
     this.querySelector('[data-path="external.label"]').value = externalLabel;
     this.querySelector('[data-path="heatpump.mode"]').value = heatpumpMode;
@@ -1651,6 +1700,12 @@ class AuriAgerFlowCardEditor extends HTMLElement {
         this.updateConfig(ev.target.dataset.path, ev.target.value);
       });
     });
+
+		this.querySelectorAll('input[type="number"][data-path]').forEach((el) => {
+		  el.addEventListener("change", (ev) => {
+		    this.updateConfig(ev.target.dataset.path, Number(ev.target.value));
+		  });
+		});
 
     this.querySelectorAll('input[type="text"][data-path]').forEach((el) => {
       el.addEventListener("change", (ev) => {
@@ -4303,16 +4358,16 @@ class AuriAgerEntitiesCard extends AuriAgerBaseCard {
 customElements.define("auri-ager-entities-card", AuriAgerEntitiesCard);
 
 /*
- * Auri Ager Micro Entity Card
+ * Auri Ager Entity Grid Card
  *
  * Horizontal micro entity tiles with primary/secondary values
  * and optional status highlighting.
  */
 
-class AuriAgerMicroEntityCard extends AuriAgerBaseCard {
+class AuriAgerEntityGridCard extends AuriAgerBaseCard {
   static getStubConfig() {
     return {
-      type: "custom:auri-ager-micro-entity-card",
+      type: "custom:auri-ager-entity-grid-card",
       accent_color: "#f5b82e",
       theme: "auto",
       columns: "auto",
@@ -4613,7 +4668,7 @@ class AuriAgerMicroEntityCard extends AuriAgerBaseCard {
   }
 }
 
-customElements.define("auri-ager-micro-entity-card", AuriAgerMicroEntityCard);
+customElements.define("auri-ager-entity-grid-card", AuriAgerEntityGridCard);
 
 /*
  * Auri Ager Progress Card
