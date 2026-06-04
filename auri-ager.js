@@ -2450,6 +2450,280 @@ class AuriAgerSummaryCard extends HTMLElement {
 
 customElements.define("auri-ager-summary-card", AuriAgerSummaryCard);
 
+class AuriAgerSummaryCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config;
+
+    if (!this._rendered && this._hass) {
+      this.render();
+      this._rendered = true;
+    }
+
+    this.syncControls();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+
+    if (!this._rendered && this._config) {
+      this.render();
+      this._rendered = true;
+    } else {
+      this.syncControls();
+    }
+  }
+
+  syncControls() {
+    if (!this._config || !this._hass || !this._rendered) return;
+
+    const setValue = (path, value) => {
+      const el = this.querySelector(`[data-path="${path}"]`);
+      if (el) el.value = value;
+    };
+
+    setValue("title", this._config.title ?? "");
+    setValue("subtitle", this._config.subtitle ?? "");
+    setValue("theme", this._config.theme ?? "auto");
+    setValue("accent_color", this._config.accent_color ?? "#5aa7d8");
+
+    const form = this.querySelector("#entity-form");
+    if (form) {
+      form.hass = this._hass;
+      form.data = {
+        entities: this._config.entities ?? {},
+      };
+    }
+  }
+
+  static getConfigElement() {
+    return document.createElement("auri-ager-summary-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  static getCardSize() {
+    return 4;
+  }
+
+  static getConfigForm() {
+    return {
+      title: "Auri Ager Summary",
+    };
+  }
+
+  render() {
+    if (!this._config || !this._hass) return;
+
+    const schema = [
+      {
+        name: "entities",
+        type: "grid",
+				schema: [
+					{ name: "production_dc", selector: { entity: { domain: "sensor" } } },
+					{ name: "production", selector: { entity: { domain: "sensor" } } },
+				
+					{ name: "efficiency", selector: { entity: { domain: "sensor" } } },
+				
+					{ name: "battery_charge", selector: { entity: { domain: "sensor" } } },
+					{ name: "battery_discharge", selector: { entity: { domain: "sensor" } } },
+				
+					{ name: "feed_in", selector: { entity: { domain: "sensor" } } },
+					{ name: "grid_import", selector: { entity: { domain: "sensor" } } },
+				
+					{ name: "consumption", selector: { entity: { domain: "sensor" } } },
+				
+					{ name: "wallbox", selector: { entity: { domain: "sensor" } } },
+					{ name: "heatpump", selector: { entity: { domain: "sensor" } } },
+				],
+      },
+    ];
+
+    this.innerHTML = `
+      <style>
+        .editor {
+          display: grid;
+          gap: 14px;
+          padding: 16px;
+          font-family: var(--ha-font-family-body, system-ui);
+        }
+
+        .editor-card {
+          display: grid;
+          gap: 12px;
+          padding: 12px;
+          border: 1px solid rgba(120,120,120,.20);
+          border-radius: 14px;
+        }
+
+        .section-title {
+          font-size: 13px;
+          font-weight: 700;
+          opacity: .72;
+        }
+
+        label {
+          display: grid;
+          gap: 6px;
+          font-size: 12px;
+          opacity: .86;
+        }
+
+        select,
+        input[type="text"],
+        input[type="color"] {
+          box-sizing: border-box;
+          width: 100%;
+        }
+
+        select,
+        input[type="text"] {
+          padding: 9px 10px;
+          border-radius: 10px;
+          border: 1px solid rgba(120,120,120,.35);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #202426);
+          font: inherit;
+        }
+
+        input[type="color"] {
+          height: 42px;
+          padding: 4px;
+          border-radius: 10px;
+          border: 1px solid rgba(120,120,120,.35);
+          background: var(--card-background-color, #fff);
+        }
+      </style>
+
+      <div class="editor">
+        <div class="editor-card">
+          <div class="section-title">Darstellung</div>
+
+          <label>
+            Titel
+            <input type="text" data-path="title" placeholder="Energie-Bilanz">
+          </label>
+
+          <label>
+            Untertitel
+            <input type="text" data-path="subtitle" placeholder="seit Inbetriebnahme">
+          </label>
+
+          <label>
+            Theme
+            <select data-path="theme">
+              <option value="auto">Automatisch</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+
+          <label>
+            Akzentfarbe
+            <input type="color" data-path="accent_color">
+          </label>
+        </div>
+
+        <div class="editor-card">
+          <div class="section-title">Entitäten</div>
+          <ha-form id="entity-form"></ha-form>
+        </div>
+      </div>
+    `;
+
+    const form = this.querySelector("#entity-form");
+
+    if (form) {
+      form.hass = this._hass;
+      form.data = {
+        entities: this._config.entities ?? {},
+      };
+      form.schema = schema;
+      form.computeLabel = (schema) => {
+        const labels = {
+					production_dc: "Erzeugung DC",
+					production: "Erzeugung AC",
+					efficiency: "Effizienzfaktor",
+					battery_charge: "Batterie laden",
+					battery_discharge: "Batterie entladen",
+					feed_in: "Einspeisung",
+					grid_import: "Bezug",
+					consumption: "Gesamtverbrauch",
+					wallbox: "Wallbox",
+					heatpump: "Wärmepumpe",
+        };
+
+        return labels[schema.name] ?? schema.name;
+      };
+
+      form.addEventListener("value-changed", (ev) => {
+        const config = this.cloneConfig(this._config);
+        config.entities = ev.detail.value.entities ?? {};
+        this._config = config;
+
+        this.dispatchEvent(
+          new CustomEvent("config-changed", {
+            detail: { config },
+            bubbles: true,
+            composed: true,
+          }),
+        );
+      });
+    }
+
+    this.syncControls();
+
+    this.querySelectorAll("select[data-path]").forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        this.updateConfig(ev.target.dataset.path, ev.target.value);
+      });
+    });
+
+    this.querySelectorAll('input[type="text"][data-path]').forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        this.updateConfig(ev.target.dataset.path, ev.target.value);
+      });
+    });
+
+    this.querySelectorAll('input[type="color"][data-path]').forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        this.updateConfig(ev.target.dataset.path, ev.target.value);
+      });
+    });
+  }
+
+  updateConfig(path, value) {
+    const config = this.cloneConfig(this._config);
+    const parts = path.split(".");
+    let target = config;
+
+    while (parts.length > 1) {
+      const key = parts.shift();
+      target[key] = target[key] ?? {};
+      target = target[key];
+    }
+
+    target[parts[0]] = value;
+    this._config = config;
+
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  cloneConfig(config) {
+    if (window.structuredClone) return structuredClone(config);
+    return JSON.parse(JSON.stringify(config));
+  }
+}
+
+customElements.define("auri-ager-summary-card-editor", AuriAgerSummaryCardEditor);
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "auri-ager-summary-card",
@@ -2458,22 +2732,20 @@ window.customCards.push({
   preview: true,
 });
 
+
+
 /* ==========================================================================
- * Auri Ager Finance + Gauge
+ * Auri Ager Finance
  * Source: auri-ager-finance-card(1).js
  * ========================================================================== */
 
 /*
- * Auri Ager Finance + Gauge Cards
- * Calm finance and percentage visualization cards for Home Assistant
+ * Auri Ager Finance
+ * Calm finance visualization cards for Home Assistant
  *
  * Copyright (c) 2026 Stefanie Ramroth
  * Licensed under the Apache License, Version 2.0
  *
- * ----------------------------------------------------------------------------
- * Version: 0.1.0-dev
- * Status : Initial draft
- * ----------------------------------------------------------------------------
  */
 
 class AuriAgerBaseCard extends HTMLElement {
@@ -2716,6 +2988,10 @@ class AuriAgerBaseCard extends HTMLElement {
 }
 
 class AuriAgerFinanceCard extends AuriAgerBaseCard {
+	static getConfigElement() {
+		return document.createElement("auri-ager-finance-card-editor");
+	}
+
   static getStubConfig() {
     return {
       type: "custom:auri-ager-finance-card",
@@ -2895,6 +3171,292 @@ class AuriAgerFinanceCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-finance-card", AuriAgerFinanceCard);
 
+class AuriAgerFinanceCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config;
+
+    if (!this._rendered && this._hass) {
+      this.render();
+      this._rendered = true;
+    }
+
+    this.syncControls();
+  }
+
+  set hass(hass) {
+    this._hass = hass;
+
+    if (!this._rendered && this._config) {
+      this.render();
+      this._rendered = true;
+    } else {
+      this.syncControls();
+    }
+  }
+
+  syncControls() {
+    if (!this._config || !this._hass || !this._rendered) return;
+
+    const setValue = (path, value) => {
+      const el = this.querySelector(`[data-path="${path}"]`);
+      if (el) el.value = value;
+    };
+
+    setValue("title", this._config.title ?? "");
+    setValue("subtitle", this._config.subtitle ?? "");
+    setValue("theme", this._config.theme ?? "auto");
+    setValue("accent_color", this._config.accent_color ?? "#5aa7d8");
+
+		const setChecked = (path, value) => {
+			const el = this.querySelector(`[data-path="${path}"]`);
+			if (el) el.checked = value;
+		};
+		
+		setChecked("show_cents", this._config.show_cents ?? true);
+
+    const form = this.querySelector("#entity-form");
+    if (form) {
+      form.hass = this._hass;
+      form.data = {
+        entities: this._config.entities ?? {},
+      };
+    }
+  }
+
+  static getConfigElement() {
+    return document.createElement("auri-ager-finance-card-editor");
+  }
+
+  static getStubConfig() {
+    return {};
+  }
+
+  static getCardSize() {
+    return 4;
+  }
+
+  static getConfigForm() {
+    return {
+      title: "Auri Ager Finance",
+    };
+  }
+
+  render() {
+    if (!this._config || !this._hass) return;
+
+		const schema = [
+			{
+				name: "entities",
+				type: "grid",
+				schema: [
+					{ name: "direct_saving", selector: { entity: { domain: "sensor" } } },
+					{ name: "battery_saving", selector: { entity: { domain: "sensor" } } },
+					{ name: "feed_in_revenue", selector: { entity: { domain: "sensor" } } },
+					{ name: "grid_import_cost", selector: { entity: { domain: "sensor" } } },
+					{ name: "fictional_total", selector: { entity: { domain: "sensor" } } },
+				],
+			},
+		];
+
+    this.innerHTML = `
+      <style>
+        .editor {
+          display: grid;
+          gap: 14px;
+          padding: 16px;
+          font-family: var(--ha-font-family-body, system-ui);
+        }
+
+        .editor-card {
+          display: grid;
+          gap: 12px;
+          padding: 12px;
+          border: 1px solid rgba(120,120,120,.20);
+          border-radius: 14px;
+        }
+
+        .section-title {
+          font-size: 13px;
+          font-weight: 700;
+          opacity: .72;
+        }
+
+        label {
+          display: grid;
+          gap: 6px;
+          font-size: 12px;
+          opacity: .86;
+        }
+
+        select,
+        input[type="text"],
+        input[type="color"] {
+          box-sizing: border-box;
+          width: 100%;
+        }
+
+        select,
+        input[type="text"] {
+          padding: 9px 10px;
+          border-radius: 10px;
+          border: 1px solid rgba(120,120,120,.35);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #202426);
+          font: inherit;
+        }
+
+        input[type="color"] {
+          height: 42px;
+          padding: 4px;
+          border-radius: 10px;
+          border: 1px solid rgba(120,120,120,.35);
+          background: var(--card-background-color, #fff);
+        }
+      </style>
+
+      <div class="editor">
+        <div class="editor-card">
+          <div class="section-title">Darstellung</div>
+
+          <label>
+            Titel
+            <input type="text" data-path="title" placeholder="Finanzen">
+          </label>
+
+          <label>
+            Untertitel
+            <input type="text" data-path="subtitle" placeholder="seit Inbetriebnahme">
+          </label>
+
+					<label class="checkbox-row">
+					  <input type="checkbox" data-path="show_cents">
+					  Cent-Beträge unter 100 € anzeigen
+					</label>
+
+          <label>
+            Theme
+            <select data-path="theme">
+              <option value="auto">Automatisch</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </label>
+
+          <label>
+            Akzentfarbe
+            <input type="color" data-path="accent_color">
+          </label>
+        </div>
+
+        <div class="editor-card">
+          <div class="section-title">Entitäten</div>
+          <ha-form id="entity-form"></ha-form>
+        </div>
+      </div>
+    `;
+
+    const form = this.querySelector("#entity-form");
+
+    if (form) {
+      form.hass = this._hass;
+      form.data = {
+        entities: this._config.entities ?? {},
+      };
+      form.schema = schema;
+			form.computeLabel = (schema) => {
+				const labels = {
+					direct_saving: "Direkte Ersparnis",
+					battery_saving: "Batterie-Ersparnis",
+					feed_in_revenue: "Einspeisevergütung",
+					grid_import_cost: "Netzbezug Kosten",
+					fictional_total: "Fiktiver Gesamtbezug",
+				};
+			
+				return labels[schema.name] ?? schema.name;
+			};
+
+      form.addEventListener("value-changed", (ev) => {
+        const config = this.cloneConfig(this._config);
+        config.entities = ev.detail.value.entities ?? {};
+        this._config = config;
+
+        this.dispatchEvent(
+          new CustomEvent("config-changed", {
+            detail: { config },
+            bubbles: true,
+            composed: true,
+          }),
+        );
+      });
+    }
+
+    this.syncControls();
+
+    this.querySelectorAll("select[data-path]").forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        this.updateConfig(ev.target.dataset.path, ev.target.value);
+      });
+    });
+
+    this.querySelectorAll('input[type="text"][data-path]').forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        this.updateConfig(ev.target.dataset.path, ev.target.value);
+      });
+    });
+
+		this.querySelectorAll('input[type="checkbox"][data-path]').forEach((el) => {
+			el.addEventListener("change", (ev) => {
+				this.updateConfig(ev.target.dataset.path, ev.target.checked);
+			});
+		});
+
+    this.querySelectorAll('input[type="color"][data-path]').forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        this.updateConfig(ev.target.dataset.path, ev.target.value);
+      });
+    });
+  }
+
+  updateConfig(path, value) {
+    const config = this.cloneConfig(this._config);
+    const parts = path.split(".");
+    let target = config;
+
+    while (parts.length > 1) {
+      const key = parts.shift();
+      target[key] = target[key] ?? {};
+      target = target[key];
+    }
+
+    target[parts[0]] = value;
+    this._config = config;
+
+    this.dispatchEvent(
+      new CustomEvent("config-changed", {
+        detail: { config },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  cloneConfig(config) {
+    if (window.structuredClone) return structuredClone(config);
+    return JSON.parse(JSON.stringify(config));
+  }
+}
+
+customElements.define("auri-ager-finance-card-editor", AuriAgerFinanceCardEditor);
+
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-finance-card",
+  name: "Auri Ager Finance",
+  description: "Calculate and display financial benefits",
+  preview: true,
+});
+
 /*
  * Auri Ager Gauge Card
  *
@@ -3054,6 +3616,14 @@ class AuriAgerGaugeCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-gauge-card", AuriAgerGaugeCard);
 
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-gauge-card",
+  name: "Auri Ager Gauge",
+  description: "Dashboard for percent values",
+  preview: true,
+});
 
 /*
  * Auri Ager Thermometer Card
@@ -3486,6 +4056,14 @@ class AuriAgerThermometerCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-thermometer-card", AuriAgerThermometerCard);
 
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-thermometer-card",
+  name: "Auri Ager Thermometer",
+  description: "Configurable thermometer card",
+  preview: true,
+});
 
 /*
  * Auri Ager Value Card
@@ -3852,6 +4430,14 @@ class AuriAgerValueCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-value-card", AuriAgerValueCard);
 
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-value-card",
+  name: "Auri Ager Value",
+  description: "Adjustable single value display",
+  preview: true,
+});
 
 /*
  * Auri Ager Entities Card
@@ -4357,6 +4943,15 @@ class AuriAgerEntitiesCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-entities-card", AuriAgerEntitiesCard);
 
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-entities-card",
+  name: "Auri Ager Entities",
+  description: "Multi-column entity list card",
+  preview: true,
+});
+
 /*
  * Auri Ager Entity Grid Card
  *
@@ -4371,6 +4966,9 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
       accent_color: "#f5b82e",
       theme: "auto",
       columns: "auto",
+      layout: "normal",
+      show_value: true,
+      icon_size: 22,
       entities: [],
     };
   }
@@ -4468,10 +5066,14 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
   }
 
   styles() {
+		const layout = this.config?.layout ?? "normal";
+		const showValue = this.config?.show_value ?? true;
+		const iconSize = this.config?.icon_size ?? (layout === "compact" ? 30 : 26);
+
     const C = this.colors();
 
-    const columns =
-      this.config?.columns === "auto"
+    const columns = this.config?.columns ?? "auto";
+		const grid_layout = columns === "auto"
         ? "repeat(auto-fit, minmax(92px, 1fr))"
         : `repeat(${this.config?.columns ?? 2}, minmax(0, 1fr))`;
 
@@ -4485,7 +5087,7 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
 
         .micro-grid {
           display: grid;
-          grid-template-columns: ${columns};
+          grid-template-columns: ${grid_layout};
           gap: 10px;
         }
 
@@ -4503,8 +5105,8 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
 
         .micro-icon {
           color: ${C.icon};
-          --mdc-icon-size: 26px;
-          margin-bottom: 4px;
+          --mdc-icon-size: ${iconSize}px;
+				  margin-bottom: ${layout === "compact" ? "6px" : "4px"};
         }
 
         .micro-icon.active {
@@ -4540,6 +5142,27 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
           white-space: nowrap;
         }
 
+				.micro.compact {
+					min-height: ${showValue ? "76px" : "62px"};
+					padding: ${showValue ? "9px 8px" : "8px 8px"};
+					grid-template-rows: auto auto auto;
+				}
+				
+				.micro.compact .micro-title {
+					font-size: 12px;
+					line-height: 1.05;
+				}
+				
+				.micro.compact .micro-primary {
+					margin-top: 4px;
+					font-size: 16px;
+				}
+				
+				.micro.compact .micro-secondary {
+					margin-top: 3px;
+					font-size: 11px;
+				}
+
         .clickable {
           cursor: pointer;
         }
@@ -4556,6 +5179,7 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
   }
 
   buildStaticDom() {
+	  const layout = this.config?.layout ?? "normal";
     const items = this.config?.entities ?? [];
 
     this.shadowRoot.innerHTML = `
@@ -4565,7 +5189,7 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
         <div class="micro-grid">
           ${items
             .map((item, index) => `
-              <div class="micro clickable" data-index="${index}">
+              <div class="micro ${layout} clickable" data-index="${index}">
                 <ha-icon class="micro-icon" id="micro-icon-${index}"></ha-icon>
                 <div class="micro-title" id="micro-title-${index}"></div>
                 <div class="micro-primary" id="micro-primary-${index}"></div>
@@ -4623,6 +5247,7 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
 
     items.forEach((item, index) => {
       const values = this.rowValues(item);
+      const showValue = this.config?.show_value ?? true;
 
       const primary = values[0];
       const secondary = values[1];
@@ -4653,22 +5278,33 @@ class AuriAgerEntityGridCard extends AuriAgerBaseCard {
           "Entity",
       );
 
-      this.setText(
-        `#micro-primary-${index}`,
-        primary ? this.fmtValueFor(primary) : "",
-      );
+			const primaryEl = this.shadowRoot.querySelector(`#micro-primary-${index}`);
+			if (primaryEl) {
+			  const primaryText = primary ? this.fmtValueFor(primary) : "";
+			  primaryEl.style.display = showValue && primaryText ? "" : "none";
+			  this.setText(`#micro-primary-${index}`, showValue ? primaryText : "");
+			}
 
-      const secondaryText = secondary ? this.fmtValueFor(secondary) : "";
-      const secondaryEl = this.shadowRoot.querySelector(`#micro-secondary-${index}`);
-      if (secondaryEl) {
-        secondaryEl.style.display = secondaryText ? "" : "none";
-        this.setText(`#micro-secondary-${index}`, secondaryText);
-      }
+			const secondaryText = secondary ? this.fmtValueFor(secondary) : "";
+			const secondaryEl = this.shadowRoot.querySelector(`#micro-secondary-${index}`);
+			if (secondaryEl) {
+			  secondaryEl.style.display = showValue && secondaryText ? "" : "none";
+			  this.setText(`#micro-secondary-${index}`, showValue ? secondaryText : "");
+			}
     });
   }
 }
 
 customElements.define("auri-ager-entity-grid-card", AuriAgerEntityGridCard);
+
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-entity-grid-card",
+  name: "Auri Ager Entity Grid",
+  description: "Space saving horizontal entity grid",
+  preview: true,
+});
 
 /*
  * Auri Ager Progress Card
@@ -4904,7 +5540,14 @@ class AuriAgerProgressCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-progress-card", AuriAgerProgressCard);
 
-  
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-progress-card",
+  name: "Auri Ager Progress",
+  description: "Progress Bar Card",
+  preview: true,
+});
 
 /*
  * Auri Ager Switch Card
@@ -5160,7 +5803,6 @@ class AuriAgerSwitchCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-switch-card", AuriAgerSwitchCard);
  
-
 
 
 /*
@@ -5569,6 +6211,15 @@ ha-card.tiny .switch-icon {
 
 customElements.define("auri-ager-control-card", AuriAgerControlCard);
 
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-control-card",
+  name: "Auri Ager Control",
+  description: "Control shutters and switches",
+  preview: true,
+});
+
 /*
  * Auri Ager Load Breakdown Card
  *
@@ -5785,21 +6436,9 @@ customElements.define("auri-ager-load-breakdown-card", AuriAgerLoadBreakdownCard
 
 window.customCards = window.customCards || [];
 window.customCards.push({
-  type: "auri-ager-finance-card",
-  name: "Auri Ager Finance",
-  description: "Calm energy finance summary card",
-  preview: true,
-});
-window.customCards.push({
-  type: "auri-ager-gauge-card",
-  name: "Auri Ager Gauge",
-  description: "Calm percentage gauge card",
-  preview: true,
-});
-window.customCards.push({
-  type: "auri-ager-value-card",
-  name: "Auri Ager Value",
-  description: "Single value card in Auri Ager design language",
+  type: "auri-ager-load-breakdown-card",
+  name: "Auri Ager Load Breakdown",
+  description: "Calm energy distribution breakdown",
   preview: true,
 });
 
@@ -5943,6 +6582,14 @@ class AuriAgerContainerCard extends AuriAgerBaseCard {
 
 customElements.define("auri-ager-container-card", AuriAgerContainerCard);
 
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-container-card",
+  name: "Auri Ager Container",
+  description: "Container for elements like cameras in Auri Ager design",
+  preview: true,
+});
 
 /*
  * Auri Ager Markdown Card
@@ -6244,6 +6891,15 @@ class AuriAgerMarkdownCard extends AuriAgerBaseCard {
 }
 
 customElements.define("auri-ager-markdown-card", AuriAgerMarkdownCard);
+
+window.customCards = window.customCards || [];
+
+window.customCards.push({
+  type: "auri-ager-markdown-card",
+  name: "Auri Ager Markdown",
+  description: "Markdown text and headers in Auri Ager design language",
+  preview: true,
+});
 
 /* ==========================================================================
  * Auri Ager Sun
