@@ -18,7 +18,7 @@
  * Source modules included below without minification for easier debugging.
  *
  * ----------------------------------------------------------------------------
- * Version: 1.2.0
+ * Version: 1.2.1
  * Status : Stable Release
  *
  * Release history:
@@ -94,6 +94,10 @@
  * - Added on/off-grid load switching
  * - Added island mode visualization for the Autarky ring
  * - Improved Sun Card layout and sunrise/sunset time positioning
+ *
+ * 1.2.1
+ * - HACS release preparation
+ * - Repository metadata and validation workflow cleanup
  * 
  * Planned:
  * - Localization

@@ -4,7 +4,7 @@
 
 A calm, opinionated Home Assistant energy dashboard suite with a shared visual language.
 
-Current release: 1.2.0  
+Current release: 1.2.1  
 Status: Stable  
 License: Apache 2.0
 

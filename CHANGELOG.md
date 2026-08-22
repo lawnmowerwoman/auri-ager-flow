@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 - 2026-08-22
+
+### Changed
+
+- Prepared repository metadata and validation workflow for HACS default repository submission.
+
 ## 1.2.0 - 2026-08-22
 
 ### Added
