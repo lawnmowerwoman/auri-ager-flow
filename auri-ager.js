@@ -2,8 +2,9 @@
  * Auri Ager Framework
  * Bundled Home Assistant custom cards for calm energy, status and dashboard visualization.
  *
- * Includes Flow, Summary, Finance, Gauge, Sun, Status, Control, Value,
- * Camera, Entities, Micro Entity, Progress, Thermometer and Markdown cards.
+ * Includes Flow, Summary, Finance, Gauge, Sun, Control, Value, Entities,
+ * Entity Grid, Progress, Thermometer, Markdown, Container, Load Breakdown,
+ * Switch and Three Phase cards.
  *
  * A framework to optimize the life standard of a German Shepherd dog named Baro 🐾
  *
@@ -17,7 +18,7 @@
  * Source modules included below without minification for easier debugging.
  *
  * ----------------------------------------------------------------------------
- * Version: 1.0.1
+ * Version: 1.2.0
  * Status : Stable Release
  *
  * Release history:
@@ -81,8 +82,21 @@
  * - Improved compact presence/status dashboards
  * - Minor editor and visual refinements
  *
+ * 1.1
+ * - Added missing editors
+ * - supports Icon Pickers
+ * - stability improvements
+ *
+ * 1.2.0
+ * - Added Flow Battery Engine V2
+ * - Added runtime, charge time and backup runtime calculations inside Flow
+ * - Added Battery DOD and Backup DOD support
+ * - Added on/off-grid load switching
+ * - Added island mode visualization for the Autarky ring
+ * - Improved Sun Card layout and sunrise/sunset time positioning
+ * 
  * Planned:
- * - Localization / configurable labels
+ * - Localization
  *
  * Design philosophy:
  * Motion indicates flow.
@@ -3908,6 +3922,208 @@ window.customCards.push({
   description: "Progress Bar Card",
   preview: true,
 });
+/*
+ * Auri Ager Solar Geometry
+ *
+ * Pure, DOM-free helpers shared by the Sun Card and future solar-aware editors.
+ *
+ * Deployment note:
+ * The Rollladen Master registry editor also ships a copy of this file at
+ * custom_components/rollladen_master_v2/frontend/auri_ager_solar_geometry.js.
+ * When changing Sun Card geometry or the Rollladen UI geometry, keep both
+ * copies in sync manually until the project has a real packaging step for
+ * shared frontend assets.
+ *
+ * Contract:
+ * - 0 degrees points north/up.
+ * - 90 degrees points east/right.
+ * - 180 degrees points south/down.
+ * - 270 degrees points west/left.
+ * - The solar arc is a calm visual projection, not an astronomical model.
+ */
+
+const AuriAgerSolarGeometry = (() => {
+  function normalizeDegrees(degrees) {
+    const value = Number(degrees);
+    if (!Number.isFinite(value)) return 0;
+    return ((value % 360) + 360) % 360;
+  }
+
+  function timeToDegrees(date, offsetMinutes = 0) {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 0;
+
+    const minutes = date.getHours() * 60 + date.getMinutes() + offsetMinutes;
+    return (minutes / 1440) * 360;
+  }
+
+  function polarPoint(cx, cy, r, degrees) {
+    const rad = ((degrees - 90) * Math.PI) / 180;
+
+    return {
+      x: cx + r * Math.cos(rad),
+      y: cy + r * Math.sin(rad),
+    };
+  }
+
+  function pointToAzimuth(cx, cy, x, y) {
+    const rad = Math.atan2(y - cy, x - cx);
+    return normalizeDegrees((rad * 180) / Math.PI + 90);
+  }
+
+  function arcPath(cx, cy, r, startDeg, endDeg) {
+    const start = polarPoint(cx, cy, r, startDeg);
+    const end = polarPoint(cx, cy, r, endDeg);
+
+    const delta = (endDeg - startDeg + 360) % 360;
+    const largeArc = delta > 180 ? 1 : 0;
+
+    return `
+      M ${start.x} ${start.y}
+      A ${r} ${r}
+        0 ${largeArc} 1
+        ${end.x} ${end.y}
+    `;
+  }
+
+  function sectorPath(cx, cy, r, startDeg, endDeg, innerRadius = 0) {
+    const outerStart = polarPoint(cx, cy, r, startDeg);
+    const outerEnd = polarPoint(cx, cy, r, endDeg);
+    const delta = (endDeg - startDeg + 360) % 360;
+    const largeArc = delta > 180 ? 1 : 0;
+
+    if (innerRadius <= 0) {
+      return `
+        M ${cx} ${cy}
+        L ${outerStart.x} ${outerStart.y}
+        A ${r} ${r}
+          0 ${largeArc} 1
+          ${outerEnd.x} ${outerEnd.y}
+        Z
+      `;
+    }
+
+    const innerStart = polarPoint(cx, cy, innerRadius, startDeg);
+    const innerEnd = polarPoint(cx, cy, innerRadius, endDeg);
+
+    return `
+      M ${outerStart.x} ${outerStart.y}
+      A ${r} ${r}
+        0 ${largeArc} 1
+        ${outerEnd.x} ${outerEnd.y}
+      L ${innerEnd.x} ${innerEnd.y}
+      A ${innerRadius} ${innerRadius}
+        0 ${largeArc} 0
+        ${innerStart.x} ${innerStart.y}
+      Z
+    `;
+  }
+
+  function solarArcPath(cx, cy, r, startDeg, endDeg, elevation) {
+    const start = polarPoint(cx, cy, r, startDeg);
+    const end = polarPoint(cx, cy, r, endDeg);
+
+    const span = (endDeg - startDeg + 360) % 360;
+    const skew = (180 - span) / 180;
+
+    const elevationClamped = Math.max(0, Math.min(70, elevation));
+    const seasonFactor = elevationClamped / 70;
+
+    const winterPeakY = cy + r * 0.85;
+    const summerPeakY = cy + r * 0.3;
+
+    const peak = {
+      x: cx + r * (-0.06 - skew * 0.22),
+      y: winterPeakY + (summerPeakY - winterPeakY) * seasonFactor,
+    };
+
+    const c1 = {
+      x: start.x - r * (0.04 + skew * 0.1),
+      y: peak.y + r * 0.08,
+    };
+
+    const c2 = {
+      x: end.x - r * (0.04 - skew * 0.18),
+      y: peak.y + r * 0.08,
+    };
+
+    return `
+      M ${start.x} ${start.y}
+      Q ${c1.x} ${c1.y}
+        ${peak.x} ${peak.y}
+      Q ${c2.x} ${c2.y}
+        ${end.x} ${end.y}
+    `;
+  }
+
+  function sunRadiusForElevation(baseRadius, elevation) {
+    const clamped = Math.max(0, Math.min(90, elevation));
+    const innerRadius = baseRadius * 0.34;
+
+    return baseRadius - (clamped / 90) * (baseRadius - innerRadius);
+  }
+
+  function resolveSunProjection({
+    cx,
+    cy,
+    baseRadius,
+    azimuth,
+    elevation,
+    isAboveHorizon,
+    solarArc,
+  }) {
+    const isDayVisual = isAboveHorizon && elevation >= 0;
+    const visualElevation = solarArc && isDayVisual ? elevation : 0;
+    const sunRadius = sunRadiusForElevation(baseRadius, visualElevation);
+
+    return {
+      isDayVisual,
+      visualElevation,
+      sunRadius,
+      point: polarPoint(cx, cy, sunRadius, azimuth),
+    };
+  }
+
+  function sunIconSvg() {
+    return `
+      <g class="sun-icon">
+        <circle class="sun-core" cx="0" cy="0" r="7"/>
+
+        <line x1="0" y1="-16" x2="0" y2="-11"/>
+        <line x1="0" y1="11" x2="0" y2="16"/>
+
+        <line x1="-16" y1="0" x2="-11" y2="0"/>
+        <line x1="11" y1="0" x2="16" y2="0"/>
+
+        <line x1="-11.3" y1="-11.3" x2="-7.8" y2="-7.8"/>
+        <line x1="7.8" y1="7.8" x2="11.3" y2="11.3"/>
+
+        <line x1="11.3" y1="-11.3" x2="7.8" y2="-7.8"/>
+        <line x1="-7.8" y1="7.8" x2="-11.3" y2="11.3"/>
+      </g>
+    `;
+  }
+
+  return {
+    normalizeDegrees,
+    timeToDegrees,
+    polarPoint,
+    pointToAzimuth,
+    arcPath,
+    sectorPath,
+    solarArcPath,
+    sunRadiusForElevation,
+    resolveSunProjection,
+    sunIconSvg,
+  };
+})();
+
+if (typeof window !== "undefined") {
+  window.AuriAgerSolarGeometry = AuriAgerSolarGeometry;
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = AuriAgerSolarGeometry;
+}
 /* ==========================================================================
  * Auri Ager Sun
  * Source: auri-ager-sun-card(8).js
@@ -3999,6 +4215,27 @@ class AuriAgerSunCard extends HTMLElement {
   	},
   };
 
+	static LAYOUT = {
+		width: 250,
+		height: 200,
+		titleX: 8,
+		titleY: 8,
+		titleHeight: 32,
+		radius: 62,
+		timeGap: 30,
+		timeEdgePadding: 16,
+		timeTextHalfWidth: 18,
+		directionGap: {
+			north: 10,
+			east: 12,
+			south: 18,
+			west: 14,
+		},
+		directionBaselineOffset: 4,
+		centerValueOffset: 8,
+		centerLabelOffset: 28,
+	};
+
   setConfig(config) {
     this.config = config;
     this._built = false;
@@ -4072,13 +4309,42 @@ class AuriAgerSunCard extends HTMLElement {
 
   geometry() {
     const hasTitle = this.config.title !== false;
+		const layout = this.constructor.LAYOUT;
 
     return {
-      cx: 100,
+			width: layout.width,
+			height: layout.height,
+      cx: layout.width / 2,
       cy: hasTitle ? 108 : 92,
-      r: 62,
+      r: layout.radius,
     };
   }
+
+	eventTimePosition(point, angle) {
+		const layout = this.constructor.LAYOUT;
+		const radians = (angle - 90) * Math.PI / 180;
+		const outwardX = Math.cos(radians);
+		const outwardY = Math.sin(radians);
+		const maxX = layout.width - layout.timeEdgePadding - layout.timeTextHalfWidth;
+		const minX = layout.timeEdgePadding + layout.timeTextHalfWidth;
+	
+		return {
+			x: Math.max(
+				minX,
+				Math.min(
+					maxX,
+					point.x + outwardX * layout.timeGap
+				)
+			),
+			y: Math.max(
+				layout.timeEdgePadding,
+				Math.min(
+					layout.height - layout.timeEdgePadding,
+					point.y + outwardY * layout.timeGap
+				)
+			),
+		};
+	}
 
   formatTime(date) {
     if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
@@ -4102,107 +4368,8 @@ class AuriAgerSunCard extends HTMLElement {
     return Number.isFinite(n) ? n : fallback;
   }
 
-  timeToDegrees(date, offsetMinutes = 0) {
-    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 0;
-
-    const minutes = date.getHours() * 60 + date.getMinutes() + offsetMinutes;
-    return (minutes / 1440) * 360;
-  }
-
-  polar(cx, cy, r, deg) {
-    const rad = ((deg - 90) * Math.PI) / 180;
-
-    return {
-      x: cx + r * Math.cos(rad),
-      y: cy + r * Math.sin(rad),
-    };
-  }
-
-  arcPath(cx, cy, r, startDeg, endDeg) {
-    const start = this.polar(cx, cy, r, startDeg);
-    const end = this.polar(cx, cy, r, endDeg);
-
-    const delta = (endDeg - startDeg + 360) % 360;
-    const largeArc = delta > 180 ? 1 : 0;
-
-    return `
-      M ${start.x} ${start.y}
-      A ${r} ${r}
-        0 ${largeArc} 1
-        ${end.x} ${end.y}
-    `;
-  }
-
-  solarArcPath(cx, cy, r, startDeg, endDeg, elevation) {
-    const start = this.polar(cx, cy, r, startDeg);
-    const end = this.polar(cx, cy, r, endDeg);
-
-    // The sun path is not intended to be a perfect astronomical model.
-    // It is a calm visual projection: sunrise and sunset stay on the ring,
-    // while the seasonal elevation moves the peak between winter and summer.
-    const span = (endDeg - startDeg + 360) % 360;
-    const skew = (180 - span) / 180;
-
-    // Night values are clamped to 0. High summer values are capped to keep the
-    // path visually stable inside the compact card geometry.
-    const elevationClamped = Math.max(0, Math.min(70, elevation));
-    const seasonFactor = elevationClamped / 70;
-
-    const winterPeakY = cy + r * 0.85;
-    const summerPeakY = cy + r * 0.3;
-
-    const peak = {
-      x: cx + r * (-0.06 - skew * 0.22),
-      y: winterPeakY + (summerPeakY - winterPeakY) * seasonFactor,
-    };
-
-    const c1 = {
-      x: start.x - r * (0.04 + skew * 0.1),
-      y: peak.y + r * 0.08,
-    };
-
-    const c2 = {
-      x: end.x - r * (0.04 - skew * 0.18),
-      y: peak.y + r * 0.08,
-    };
-
-    return `
-      M ${start.x} ${start.y}
-      Q ${c1.x} ${c1.y}
-        ${peak.x} ${peak.y}
-      Q ${c2.x} ${c2.y}
-        ${end.x} ${end.y}
-    `;
-  }
-
-  sunRadiusForElevation(baseRadius, elevation) {
-    const clamped = Math.max(0, Math.min(90, elevation));
-
-    // 0°  -> sun sits on the horizon/ring.
-    // 90° -> sun moves toward the center, but not into the text area.
-    const innerRadius = baseRadius * 0.34;
-
-    return baseRadius - (clamped / 90) * (baseRadius - innerRadius);
-  }
-
   sunIcon() {
-    return `
-      <g class="sun-icon">
-        <circle class="sun-core" cx="0" cy="0" r="7"/>
-
-        <line x1="0" y1="-16" x2="0" y2="-11"/>
-        <line x1="0" y1="11" x2="0" y2="16"/>
-
-        <line x1="-16" y1="0" x2="-11" y2="0"/>
-        <line x1="11" y1="0" x2="16" y2="0"/>
-
-        <line x1="-11.3" y1="-11.3" x2="-7.8" y2="-7.8"/>
-        <line x1="7.8" y1="7.8" x2="11.3" y2="11.3"/>
-
-        <line x1="11.3" y1="-11.3" x2="7.8" y2="-7.8"/>
-        <line x1="-7.8" y1="7.8" x2="-11.3" y2="11.3"/>
-      </g>
-    `;
+    return AuriAgerSolarGeometry.sunIconSvg();
   }
 
   sunriseIcon() {
@@ -4248,11 +4415,11 @@ class AuriAgerSunCard extends HTMLElement {
     return {
       azimuth,
       elevation,
-      sunriseAngle: this.timeToDegrees(
+      sunriseAngle: AuriAgerSolarGeometry.timeToDegrees(
         sunrise,
         calibration.sunrise_offset_minutes ?? 0,
       ),
-      sunsetAngle: this.timeToDegrees(
+      sunsetAngle: AuriAgerSolarGeometry.timeToDegrees(
         sunset,
         calibration.sunset_offset_minutes ?? 0,
       ),
@@ -4280,7 +4447,7 @@ class AuriAgerSunCard extends HTMLElement {
         svg {
           display: block;
           width: 100%;
-          max-width: 200px;
+          max-width: ${this.constructor.LAYOUT.width}px;
           height: auto;
           margin: 0 auto;
           font-family: var(--ha-font-family-body, system-ui);
@@ -4384,14 +4551,15 @@ class AuriAgerSunCard extends HTMLElement {
     const background = this.config.background;
     const show = this.config.show ?? {};
     const expert = this.config.expert ?? {};
-    const { cx, cy, r } = this.geometry();
+    const { width, height, cx, cy, r } = this.geometry();
+		const layout = this.constructor.LAYOUT;
 
     this.shadowRoot.innerHTML = `
       ${this.styles()}
 
       <ha-card>
-        <svg viewBox="0 0 200 200">
-          ${showTitle ? `<text x="8" y="8" class="title">${title ?? "Sonnenstand"}</text>` : ""}
+        <svg viewBox="0 0 ${width} ${height}">
+          ${showTitle ? `<text x="${this.constructor.LAYOUT.titleX}" y="${this.constructor.LAYOUT.titleY}" class="title">${title ?? "Sonnenstand"}</text>` : ""}
 
           <clipPath id="sun-bg-clip">
             <circle cx="${cx}" cy="${cy}" r="${r}"/>
@@ -4411,10 +4579,10 @@ class AuriAgerSunCard extends HTMLElement {
           <circle id="compass-ring" cx="${cx}" cy="${cy}" r="${r}" class="ring"/>
 
           ${show.directions !== false
-            ? `<text x="${cx}" y="${cy - r - 10}" class="direction">N</text>
-               <text x="${cx + r + 12}" y="${cy + 4}" class="direction">O</text>
-               <text x="${cx}" y="${cy + r + 18}" class="direction">S</text>
-               <text x="${cx - r - 14}" y="${cy + 4}" class="direction">W</text>`
+            ? `<text x="${cx}" y="${cy - r - layout.directionGap.north}" class="direction">N</text>
+               <text x="${cx + r + layout.directionGap.east}" y="${cy + layout.directionBaselineOffset}" class="direction">O</text>
+               <text x="${cx}" y="${cy + r + layout.directionGap.south}" class="direction">S</text>
+               <text x="${cx - r - layout.directionGap.west}" y="${cy + layout.directionBaselineOffset}" class="direction">W</text>`
             : ""}
 
           ${show.sunrise !== false
@@ -4446,8 +4614,8 @@ class AuriAgerSunCard extends HTMLElement {
             ${this.sunIcon()}
           </g>
 
-          <text id="elevation-value" x="${cx}" y="${cy + 8}" class="center-value"></text>
-          <text x="${cx}" y="${cy + 28}" class="center-label">Elevation</text>
+          <text id="elevation-value" x="${cx}" y="${cy + layout.centerValueOffset}" class="center-value"></text>
+          <text x="${cx}" y="${cy + layout.centerLabelOffset}" class="center-label">Elevation</text>
         </svg>
       </ha-card>
     `;
@@ -4459,15 +4627,18 @@ class AuriAgerSunCard extends HTMLElement {
     const { cx, cy, r } = this.geometry();
 		const COLORS = this.colors();
 
-    // With solar_arc enabled the sun moves inward based on elevation.
-    // Without solar_arc it stays on the compass ring. Negative elevation is
-    // clamped so the night position remains stable on the horizon.
-    //const visualElevation = expert.solar_arc ? Math.max(0, data.elevation) : 0;
-    //const sunRadius = this.sunRadiusForElevation(r, visualElevation);
-
-    //const sunPos = this.polar(cx, cy, sunRadius, data.azimuth);
-    const sunrisePos = this.polar(cx, cy, r, data.sunriseAngle);
-    const sunsetPos = this.polar(cx, cy, r, data.sunsetAngle);
+    const sunrisePos = AuriAgerSolarGeometry.polarPoint(
+      cx,
+      cy,
+      r,
+      data.sunriseAngle,
+    );
+    const sunsetPos = AuriAgerSolarGeometry.polarPoint(
+      cx,
+      cy,
+      r,
+      data.sunsetAngle,
+    );
 
     const ring = this.shadowRoot.querySelector("#compass-ring");
     if (ring) {
@@ -4481,7 +4652,7 @@ class AuriAgerSunCard extends HTMLElement {
     if (arc) {
       arc.setAttribute(
         "d",
-        this.solarArcPath(
+        AuriAgerSolarGeometry.solarArcPath(
           cx,
           cy,
           r,
@@ -4496,7 +4667,13 @@ class AuriAgerSunCard extends HTMLElement {
     if (band) {
       band.setAttribute(
         "d",
-        this.arcPath(cx, cy, r + 11, data.sunriseAngle, data.sunsetAngle),
+        AuriAgerSolarGeometry.arcPath(
+          cx,
+          cy,
+          r + 11,
+          data.sunriseAngle,
+          data.sunsetAngle,
+        ),
       );
 
       band.setAttribute(
@@ -4508,17 +4685,16 @@ class AuriAgerSunCard extends HTMLElement {
 		const sunMarker = this.shadowRoot.querySelector("#sun-marker");
 		
 		if (sunMarker) {
-			const isDayVisual =
-				data.isAboveHorizon &&
-				data.elevation >= 0;
-		
-			const visualElevation =
-				expert.solar_arc && isDayVisual
-					? data.elevation
-					: 0;
-		
-			const sunRadius = this.sunRadiusForElevation(r, visualElevation);
-			const sunPos = this.polar(cx, cy, sunRadius, data.azimuth);
+			const sunProjection = AuriAgerSolarGeometry.resolveSunProjection({
+        cx,
+        cy,
+        baseRadius: r,
+        azimuth: data.azimuth,
+        elevation: data.elevation,
+        isAboveHorizon: data.isAboveHorizon,
+        solarArc: expert.solar_arc,
+      });
+			const sunPos = sunProjection.point;
 		
 			sunMarker.setAttribute(
 				"transform",
@@ -4527,7 +4703,7 @@ class AuriAgerSunCard extends HTMLElement {
 		
 			sunMarker.style.setProperty(
 				"--auri-sun-color",
-				isDayVisual
+				sunProjection.isDayVisual
 					? COLORS.sun
 					: COLORS.night
 			);
@@ -4551,16 +4727,18 @@ class AuriAgerSunCard extends HTMLElement {
 
     const sunriseTime = this.shadowRoot.querySelector("#sunrise-time");
     if (sunriseTime) {
+			const timePos = this.eventTimePosition(sunrisePos, data.sunriseAngle);
       sunriseTime.textContent = this.formatTime(data.sunrise);
-      sunriseTime.setAttribute("x", sunrisePos.x + 30);
-      sunriseTime.setAttribute("y", sunrisePos.y + 2);
+      sunriseTime.setAttribute("x", timePos.x);
+      sunriseTime.setAttribute("y", timePos.y);
     }
 
     const sunsetTime = this.shadowRoot.querySelector("#sunset-time");
     if (sunsetTime) {
+			const timePos = this.eventTimePosition(sunsetPos, data.sunsetAngle);
       sunsetTime.textContent = this.formatTime(data.sunset);
-      sunsetTime.setAttribute("x", sunsetPos.x - 30);
-      sunsetTime.setAttribute("y", sunsetPos.y + 2);
+      sunsetTime.setAttribute("x", timePos.x);
+      sunsetTime.setAttribute("y", timePos.y);
     }
 
     const elevation = this.shadowRoot.querySelector("#elevation-value");
@@ -4718,7 +4896,6 @@ window.customCards.push({
   description: "Sun position and daylight visualization",
   preview: true,
 });
-
 /*
  * Auri Ager Flow
  *
@@ -4735,6 +4912,16 @@ class AuriAgerFlowCard extends HTMLElement {
 			theme: "auto",
 			hide_zeros: false,
 			max_width: 1200,
+			grid: {
+				reverse_direction: false,
+			},
+			battery: {
+				reverse_direction: false,
+				minimum_soc: 10,
+				maximum_soc: 100,
+				has_backup: false,
+				backup_minimum_soc: 10,
+			},
 		};
 	}
 
@@ -4781,6 +4968,7 @@ class AuriAgerFlowCard extends HTMLElement {
 
   static THRESHOLD_W = 30;
   static THRESHOLD_W_ZERO = 0;
+	static ISLAND_MODE_COLOR = "#e65c4f";
 
   static LAYOUTS = {
     full: {
@@ -4896,19 +5084,30 @@ class AuriAgerFlowCard extends HTMLElement {
 
 	stateSnapshot() {
 		const entities = this.config.entities ?? {};
+		const battery = this.config.battery ?? {};
 	
 		const ids = [
 			entities.solar,
 			entities.external,
 			entities.grid,
-			entities.battery_power,
-			entities.battery_soc,
+			this.loadEntityForSnapshot(),
+			this.config?.load?.backup_entity,
+			this.config?.load?.grid_detection_entity,
+			battery.power ?? entities.battery_power,
+			battery.entity,
+			battery.soc ?? entities.battery_soc,
+			battery.soc_entity,
 			entities.battery_runtime,
 			entities.home,
 			entities.wallbox,
 			entities.heatpump,
 			entities.autarky,
 			entities.self_consumption,
+			this.entityFromConfigValue(battery.minimum_soc),
+			this.entityFromConfigValue(battery.maximum_soc),
+			this.entityFromConfigValue(battery.backup_minimum_soc),
+			this.entityFromConfigValue(battery.dod),
+			this.entityFromConfigValue(battery.backup_dod),
 		].filter(Boolean);
 	
 		return ids
@@ -5006,13 +5205,19 @@ class AuriAgerFlowCard extends HTMLElement {
 	  return typeof entity === "string" && entity.trim().length > 0;
 	}
 
+	stateNumber(entity) {
+		if (!entity) return null;
+	
+		const state = this._hass?.states?.[entity];
+		const value = Number(state?.state);
+	
+		return Number.isFinite(value) ? value : null;
+	}
+
   value(entity) {
     if (!entity) return 0;
 
-    const state = this._hass?.states?.[entity];
-    const value = Number(state?.state);
-
-    return Number.isFinite(value) ? value : 0;
+    return this.stateNumber(entity) ?? 0;
   }
 
   valueText(entity) {
@@ -5032,6 +5237,220 @@ class AuriAgerFlowCard extends HTMLElement {
 
     return String(value);
   }
+
+	batteryPowerEntity() {
+		return this.config?.battery?.entity
+			?? this.config?.battery?.power
+			?? this.config?.entities?.battery_power;
+	}
+
+	batterySocEntity() {
+		return this.config?.battery?.soc_entity
+			?? this.config?.battery?.soc
+			?? this.config?.entities?.battery_soc;
+	}
+
+	numberConfig(value, fallback = null) {
+		const n = Number(value);
+		return Number.isFinite(n) ? n : fallback;
+	}
+
+	entityFromConfigValue(value) {
+		return this.hasEntity(value) && !Number.isFinite(Number(value))
+			? value
+			: null;
+	}
+
+	configNumberOrEntity(value, fallback = null) {
+		if (value === undefined || value === null || value === "") {
+			return fallback;
+		}
+	
+		const numeric = Number(value);
+		if (Number.isFinite(numeric)) {
+			return numeric;
+		}
+	
+		const entityValue = this.stateNumber(value);
+		return entityValue ?? fallback;
+	}
+
+	resolveMinimumSoc({ minimumSoc, dod, fallback = 10 }) {
+		if (minimumSoc !== undefined && minimumSoc !== null && minimumSoc !== "") {
+			return this.configNumberOrEntity(minimumSoc, fallback);
+		}
+	
+		if (dod !== undefined && dod !== null && dod !== "") {
+			return 100 - this.configNumberOrEntity(dod, 100 - fallback);
+		}
+	
+		return fallback;
+	}
+
+	loadConfig() {
+		return this.config?.load ?? {};
+	}
+
+	loadEntityForSnapshot() {
+		const load = this.loadConfig();
+		return load.entity ?? this.config?.entities?.home;
+	}
+
+	gridConnected() {
+		const load = this.loadConfig();
+	
+		if (!this.hasEntity(load.grid_detection_entity)) {
+			return true;
+		}
+	
+		const state = this._hass?.states?.[load.grid_detection_entity]?.state;
+		const expected = load.grid_detection_value;
+	
+		if (expected === undefined || expected === null || expected === "") {
+			return true;
+		}
+	
+		return String(state) === String(expected);
+	}
+
+	activeLoadEntity() {
+		const load = this.loadConfig();
+	
+		if (this.gridConnected()) {
+			return load.entity ?? this.config?.entities?.home;
+		}
+	
+		return load.backup_entity ?? load.entity ?? this.config?.entities?.home;
+	}
+
+	backupLoadValue(fallbackConsumption = 0) {
+		const load = this.loadConfig();
+	
+		if (this.hasEntity(load.backup_entity)) {
+			return this.value(load.backup_entity);
+		}
+	
+		return fallbackConsumption;
+	}
+
+	formatHours(hours) {
+		if (!Number.isFinite(hours) || hours < 0) return "";
+	
+		const totalMinutes = Math.round(hours * 60);
+		const h = Math.floor(totalMinutes / 60);
+		const m = totalMinutes % 60;
+	
+		if (h <= 0) return `${m} min`;
+		return `${h}:${String(m).padStart(2, "0")} h`;
+	}
+
+	resolveBatteryEngine({ batteryPower, batterySoc, loadPower, backupLoadPower }) {
+		const battery = this.config?.battery ?? {};
+		const capacity = this.numberConfig(battery.capacity, null);
+	
+		if (!capacity || capacity <= 0) {
+			return {};
+		}
+	
+		const soc = this.clamp(Number(batterySoc), 0, 100);
+		const minimumSoc = this.clamp(
+			this.resolveMinimumSoc({
+				minimumSoc: battery.minimum_soc,
+				dod: battery.dod,
+				fallback: 10,
+			}),
+			0,
+			100
+		);
+		const maximumSoc = this.clamp(this.configNumberOrEntity(battery.maximum_soc, 100), 0, 100);
+		const backupMinimumSoc = this.clamp(
+			this.resolveMinimumSoc({
+				minimumSoc: battery.backup_minimum_soc,
+				dod: battery.backup_dod,
+				fallback: 10,
+			}),
+			0,
+			100
+		);
+		const dischargePowerKw = batteryPower > AuriAgerFlowCard.THRESHOLD_W
+			? batteryPower / 1000
+			: 0;
+		const chargePowerKw = batteryPower < -AuriAgerFlowCard.THRESHOLD_W
+			? Math.abs(batteryPower) / 1000
+			: 0;
+		const backupLoadKw = backupLoadPower > AuriAgerFlowCard.THRESHOLD_W
+			? backupLoadPower / 1000
+			: 0;
+	
+		const availableEnergy = capacity * Math.max(0, soc - minimumSoc) / 100;
+		const missingEnergy = capacity * Math.max(0, maximumSoc - soc) / 100;
+		const hasBackup = battery.has_backup !== undefined
+			? battery.has_backup === true
+			: battery.backup_power === true;
+		const backupEnergy = hasBackup
+			? capacity * Math.max(0, soc - backupMinimumSoc) / 100
+			: null;
+	
+		return {
+			soc,
+			capacity,
+			minimumSoc,
+			maximumSoc,
+			backupMinimumSoc,
+			loadPower,
+			backupLoadPower,
+			availableEnergy,
+			chargeMissingEnergy: missingEnergy,
+			dischargeRuntime: dischargePowerKw > 0
+				? availableEnergy / dischargePowerKw
+				: null,
+			chargeRuntime: chargePowerKw > 0 && soc < maximumSoc && missingEnergy > 0
+				? missingEnergy / chargePowerKw
+				: null,
+			backupEnergy,
+			backupRuntime: backupEnergy !== null && backupLoadKw > 0
+				? backupEnergy / backupLoadKw
+				: null,
+		};
+	}
+
+	batteryRuntimeText(stats, legacyRuntime = "") {
+		if (stats.dischargeRuntime !== null && stats.dischargeRuntime !== undefined) {
+			return `Laufzeit ${this.formatHours(stats.dischargeRuntime)}`;
+		}
+	
+		if (stats.chargeRuntime !== null && stats.chargeRuntime !== undefined) {
+			return `Voll in ${this.formatHours(stats.chargeRuntime)}`;
+		}
+	
+		return legacyRuntime ? `Laufzeit ${legacyRuntime}` : "";
+	}
+
+	batteryBackupText(stats) {
+		if (stats.backupRuntime !== null && stats.backupRuntime !== undefined) {
+			return `Notstrom ${this.formatHours(stats.backupRuntime)}`;
+		}
+	
+		if (stats.backupEnergy !== null && stats.backupEnergy !== undefined) {
+			return `Notstrom ${stats.backupEnergy.toFixed(1)} kWh`;
+		}
+	
+		return "";
+	}
+
+	batteryStatusText(data) {
+		const parts = [data.batteryLabel];
+	
+		if (data.batteryLabel !== "Standby") {
+			parts.push(this.fmtW(data.batteryPower));
+		}
+
+		if (data.batteryRuntime) {
+			parts.push(data.batteryRuntime);
+		}
+	
+		return parts.filter(Boolean).join(" · ");
+	}
 
   clamp(value, min = 0, max = 100) {
     return Math.max(min, Math.min(max, value));
@@ -5064,6 +5483,16 @@ class AuriAgerFlowCard extends HTMLElement {
     const el = this.shadowRoot?.querySelector(selector);
     if (el) el.textContent = value ?? "";
   }
+
+	setAttr(selector, name, value) {
+		const el = this.shadowRoot?.querySelector(selector);
+		if (el) el.setAttribute(name, value);
+	}
+
+	setStyle(selector, name, value) {
+		const el = this.shadowRoot?.querySelector(selector);
+		if (el) el.style.setProperty(name, value);
+	}
 
   setHTML(selector, value) {
     const el = this.shadowRoot?.querySelector(selector);
@@ -5118,17 +5547,18 @@ class AuriAgerFlowCard extends HTMLElement {
   
 	attachEntityHandlers() {
 		const entities = this.config.entities ?? {};
+		const loadEntity = this.activeLoadEntity();
 	
 		const mapping = {
 			"node-pv": entities.solar,
 			"node-external": entities.external,
 			"node-grid": entities.grid,
-			"node-battery-soc": entities.battery_soc,
-			"node-battery-power": entities.battery_power,
+			"node-battery-soc": this.batterySocEntity(),
+			"node-battery-power": this.batteryPowerEntity(),
 			"node-wallbox": entities.wallbox,
-			"node-consumption": entities.home,
+			"node-consumption": loadEntity,
 			"node-heatpump": entities.heatpump,
-			"node-home": entities.home,
+			"node-home": loadEntity,
 		};
 	
 		Object.entries(mapping).forEach(([id, entity]) => {
@@ -5316,6 +5746,7 @@ class AuriAgerFlowCard extends HTMLElement {
 
   resolveData() {
     const entities = this.config.entities ?? {};
+    const batteryConfig = this.config.battery ?? {};
     const externalConfig = this.config.external ?? {};
     const externalMode = externalConfig.mode ?? "parallel_pv";
 		const heatpumpMode = this.config.heatpump?.mode ?? "behind_home";
@@ -5331,11 +5762,16 @@ class AuriAgerFlowCard extends HTMLElement {
 
     const solarRaw = this.value(entities.solar);
     const external = this.value(entities.external);
-    const grid = this.value(entities.grid);
-    const batteryPower = this.value(entities.battery_power);
-    const batterySoc = this.value(entities.battery_soc);
+    const gridRaw = this.value(entities.grid);
+    const grid = this.config.grid?.reverse_direction ? -gridRaw : gridRaw;
+    const batteryPowerEntity = this.batteryPowerEntity();
+    const batterySocEntity = this.batterySocEntity();
+		const activeLoadEntity = this.activeLoadEntity();
+    const batteryPowerRaw = this.value(batteryPowerEntity);
+    const batteryPower = batteryConfig.reverse_direction ? -batteryPowerRaw : batteryPowerRaw;
+    const batterySoc = this.value(batterySocEntity);
     const batteryRuntime = this.valueText(entities.battery_runtime);
-    const homeRaw = this.value(entities.home);
+    const homeRaw = this.value(activeLoadEntity);
     const wallbox = this.value(entities.wallbox);
     const heatpump = this.value(entities.heatpump);
 
@@ -5411,6 +5847,36 @@ class AuriAgerFlowCard extends HTMLElement {
 					)
 				: 0;
 		
+		const islandMode = !this.gridConnected();
+		const autarkyRing = islandMode
+			? {
+					percent: 100,
+					color: AuriAgerFlowCard.ISLAND_MODE_COLOR,
+					value: "Insel-",
+					title: "betrieb",
+					subtitle: "",
+					valueY: -5,
+					titleY: 23,
+					subtitleY: 37,
+				}
+			: {
+					percent: autarky,
+					color: null,
+					value: `${Math.round(autarky)}%`,
+					title: "Autarkie",
+					subtitle: "",
+					valueY: -7,
+					titleY: 19,
+					subtitleY: 37,
+				};
+
+		const batteryStats = this.resolveBatteryEngine({
+			batteryPower,
+			batterySoc,
+			loadPower: consumption,
+			backupLoadPower: this.backupLoadValue(consumption),
+		});
+		
     const batteryLabel =
       batteryPower > AuriAgerFlowCard.THRESHOLD_W ? "Entlädt" :
       batteryPower < -AuriAgerFlowCard.THRESHOLD_W ? "Lädt" :
@@ -5453,12 +5919,16 @@ class AuriAgerFlowCard extends HTMLElement {
       batteryPower,
       batterySoc,
       batteryLabel,
-      batteryRuntime,
+      batteryRuntime: this.batteryRuntimeText(batteryStats, batteryRuntime),
+			batteryBackup: this.batteryBackupText(batteryStats),
+      batteryStats,
       wallbox,
       heatpump,
       homeBase,
       consumption,
       autarky,
+			autarkyRing,
+			islandMode,
       selfConsumption,
       // grid path is drawn grid -> center.
       // grid > 0 means export, therefore center -> grid, so reverse path.
@@ -5528,7 +5998,8 @@ class AuriAgerFlowCard extends HTMLElement {
       <circle cx="${autarky.x}" cy="${autarky.y}" r="${autarky.r}" class="ring-bg autarky-ring-bg"/>
       <circle id="autarky-ring" cx="${autarky.x}" cy="${autarky.y}" r="${autarky.r}" class="autarky-ring"/>
       <text id="autarky-value" x="${autarky.x}" y="${autarky.y - 7}" class="center-value"></text>
-      <text x="${autarky.x}" y="${autarky.y + 19}" class="center-label">Autarkie</text>
+      <text id="autarky-title" x="${autarky.x}" y="${autarky.y + 19}" class="center-label"></text>
+      <text id="autarky-subtitle" x="${autarky.x}" y="${autarky.y + 37}" class="center-label"></text>
     `;
   }
 
@@ -5622,9 +6093,9 @@ class AuriAgerFlowCard extends HTMLElement {
 				</text>
 			</g>
 			
-			<text id="battery-runtime"
+			<text id="battery-backup"
 						x="${n.battery.x}"
-						y="${n.battery.y + 96}"
+						y="${n.battery.y + 94}"
 						class="small">
 			</text>
 		
@@ -5733,7 +6204,7 @@ class AuriAgerFlowCard extends HTMLElement {
 
     const autarkyCircumference = 2 * Math.PI * autarky.r;
     const autarkyDash =
-      (this.clamp(data.autarky) / 100) * autarkyCircumference;
+      (this.clamp(data.autarkyRing.percent) / 100) * autarkyCircumference;
 
     const selfCircumference = 2 * Math.PI * selfConsumption.r;
     const selfDash =
@@ -5745,12 +6216,22 @@ class AuriAgerFlowCard extends HTMLElement {
     this.shadowRoot
       .querySelector("#autarky-ring")
       ?.setAttribute("stroke-dasharray", `${autarkyDash} ${autarkyCircumference}`);
+		this.setStyle(
+			"#autarky-ring",
+			"stroke",
+			data.autarkyRing.color ?? this.colors().autarky
+		);
 
     this.shadowRoot
       .querySelector("#self-ring")
       ?.setAttribute("stroke-dasharray", `${selfDash} ${selfCircumference}`);
 
-    this.setText("#autarky-value", `${Math.round(data.autarky)}%`);
+		this.setAttr("#autarky-value", "y", autarky.y + data.autarkyRing.valueY);
+		this.setAttr("#autarky-title", "y", autarky.y + data.autarkyRing.titleY);
+		this.setAttr("#autarky-subtitle", "y", autarky.y + data.autarkyRing.subtitleY);
+    this.setText("#autarky-value", data.autarkyRing.value);
+    this.setText("#autarky-title", data.autarkyRing.title);
+    this.setText("#autarky-subtitle", data.autarkyRing.subtitle);
     this.setText("#self-value", `${Math.round(data.selfConsumption)}%`);
 
     this.setText("#pv-value", this.fmtW(data.solar));
@@ -5770,17 +6251,8 @@ class AuriAgerFlowCard extends HTMLElement {
 
     this.setText("#battery-value", `${Math.round(data.batterySoc)}%`);
     this.setHTML("#battery-icon", this.batteryIcon(data.batterySoc));
-    const batteryLabelText = [
-		  data.batteryLabel,
-		  data.batteryLabel !== "Standby" ? this.fmtW(data.batteryPower) : null
-		].filter(Boolean).join(" · ");
-    this.setText("#battery-subline", batteryLabelText);
-    //  `${data.batteryLabel} ${data.batteryLabel != "Standby" ? `${data.batteryLabel} · ${this.fmtW(data.batteryPower)}`
-    //);
-    this.setText(
-      "#battery-runtime",
-      data.batteryRuntime ? `Laufzeit ${data.batteryRuntime}` : ""
-    );
+    this.setText("#battery-subline", this.batteryStatusText(data));
+    this.setText("#battery-backup", data.batteryBackup ?? "");
 
     this.setText("#wallbox-value", this.fmtW(data.wallbox));
     this.setText("#consumption-value", this.fmtW(data.consumption));
@@ -6077,15 +6549,27 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 		const external = this._config.external ?? {};
 		const heatpump = this._config.heatpump ?? {};
 		const wallbox = this._config.wallbox ?? {};
+		const grid = this._config.grid ?? {};
+		const battery = this._config.battery ?? {};
+		const load = this._config.load ?? {};
+	
+		const isEditing = (el) => {
+			const active = el?.ownerDocument?.activeElement;
+			return el && (
+				active === el ||
+				el.matches?.(":focus") ||
+				el.contains?.(active)
+			);
+		};
 	
 		const setValue = (path, value) => {
 			const el = this.querySelector(`[data-path="${path}"]`);
-			if (el) el.value = value;
+			if (el && !isEditing(el)) el.value = value;
 		};
 	
 		const setChecked = (path, value) => {
 			const el = this.querySelector(`[data-path="${path}"]`);
-			if (el) el.checked = value;
+			if (el && !isEditing(el)) el.checked = value;
 		};
 	
 		setValue("theme", theme);
@@ -6094,7 +6578,25 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 		setValue("external.label", external.label ?? "Externe Quelle");
 		setValue("heatpump.mode", heatpump.mode ?? "behind_home");
 		setValue("wallbox.mode", wallbox.mode ?? "behind_home");
+		setValue("battery.entity", battery.entity ?? battery.power ?? this._config.entities?.battery_power ?? "");
+		setValue("battery.soc_entity", battery.soc_entity ?? battery.soc ?? this._config.entities?.battery_soc ?? "");
+		setValue("battery.capacity", battery.capacity ?? "");
+		setValue("battery.minimum_soc", battery.minimum_soc ?? (battery.dod !== undefined ? "" : 10));
+		setValue("battery.dod", battery.dod ?? "");
+		setValue("battery.maximum_soc", battery.maximum_soc ?? 100);
+		setValue(
+			"battery.backup_minimum_soc",
+			battery.backup_minimum_soc ?? (battery.backup_dod !== undefined ? "" : 10)
+		);
+		setValue("battery.backup_dod", battery.backup_dod ?? "");
+		setValue("load.entity", load.entity ?? this._config.entities?.home ?? "");
+		setValue("load.backup_entity", load.backup_entity ?? "");
+		setValue("load.grid_detection_entity", load.grid_detection_entity ?? "");
+		setValue("load.grid_detection_value", load.grid_detection_value ?? "");
 		setChecked("hide_zeros", this._config.hide_zeros ?? false);
+		setChecked("grid.reverse_direction", grid.reverse_direction ?? false);
+		setChecked("battery.reverse_direction", battery.reverse_direction ?? false);
+		setChecked("battery.has_backup", battery.has_backup ?? battery.backup_power ?? false);
 	
 		const form = this.querySelector("#entity-form");
 		if (form) {
@@ -6138,7 +6640,25 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 		const wallbox = this._config.wallbox ?? {};
 		const heatpumpMode = heatpump.mode ?? "behind_home";
 		const wallboxMode = wallbox.mode ?? "behind_home";
+		const grid = this._config.grid ?? {};
+		const battery = this._config.battery ?? {};
+		const load = this._config.load ?? {};
     const entities = this._config.entities ?? {};
+		const gridReverseDirection = grid.reverse_direction ?? false;
+		const batteryPower = battery.entity ?? battery.power ?? entities.battery_power ?? "";
+		const batterySoc = battery.soc_entity ?? battery.soc ?? entities.battery_soc ?? "";
+		const batteryReverseDirection = battery.reverse_direction ?? false;
+		const batteryCapacity = battery.capacity ?? "";
+		const batteryMinimumSoc = battery.minimum_soc ?? (battery.dod !== undefined ? "" : 10);
+		const batteryDod = battery.dod ?? "";
+		const batteryMaximumSoc = battery.maximum_soc ?? 100;
+		const batteryHasBackup = battery.has_backup ?? battery.backup_power ?? false;
+		const batteryBackupMinimumSoc = battery.backup_minimum_soc ?? (battery.backup_dod !== undefined ? "" : 10);
+		const batteryBackupDod = battery.backup_dod ?? "";
+		const loadEntity = load.entity ?? entities.home ?? "";
+		const loadBackupEntity = load.backup_entity ?? "";
+		const loadGridDetectionEntity = load.grid_detection_entity ?? "";
+		const loadGridDetectionValue = load.grid_detection_value ?? "";
 
 		const schema = [
 			{
@@ -6148,8 +6668,6 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 					{ name: "solar", selector: { entity: { domain: "sensor" } } },
 					{ name: "external", selector: { entity: { domain: "sensor" } } },
 					{ name: "grid", selector: { entity: { domain: "sensor" } } },
-					{ name: "battery_power", selector: { entity: { domain: "sensor" } } },
-					{ name: "battery_soc", selector: { entity: { domain: "sensor" } } },
 					{ name: "battery_runtime", selector: { entity: { domain: "sensor" } } },
 					{ name: "home", selector: { entity: { domain: "sensor" } } },
 					{ name: "wallbox", selector: { entity: { domain: "sensor" } } },
@@ -6203,13 +6721,15 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 
         select,
         input[type="text"],
+        input[type="number"],
         ha-entity-picker {
           box-sizing: border-box;
           width: 100%;
         }
 
         select,
-        input[type="text"] {
+        input[type="text"],
+        input[type="number"] {
           padding: 9px 10px;
           border-radius: 10px;
           border: 1px solid rgba(120,120,120,.35);
@@ -6271,6 +6791,108 @@ class AuriAgerFlowCardEditor extends HTMLElement {
         </div>
 
 				<div class="editor-card">
+					<div class="section-title">Grid</div>
+				
+					<label class="checkbox-row">
+						<input type="checkbox" data-path="grid.reverse_direction">
+						Reverse Direction
+					</label>
+				</div>
+
+				<div class="editor-card">
+					<div class="section-title">Battery</div>
+
+					<label>
+						Battery Power Entity
+						<ha-entity-picker
+							data-path="battery.entity"
+							allow-custom-entity>
+						</ha-entity-picker>
+					</label>
+
+					<label>
+						Battery SOC Entity
+						<ha-entity-picker
+							data-path="battery.soc_entity"
+							allow-custom-entity>
+						</ha-entity-picker>
+					</label>
+				
+					<label class="checkbox-row">
+						<input type="checkbox" data-path="battery.reverse_direction">
+						Reverse Direction
+					</label>
+
+					<label>
+						Capacity (kWh)
+						<input type="number" data-path="battery.capacity" min="0" step="0.01">
+					</label>
+
+					<label>
+						Minimum SOC (%)
+						<input type="text" data-flex-number data-path="battery.minimum_soc" placeholder="10 oder number.minimum_soc">
+					</label>
+
+					<label>
+						DOD / Entladungstiefe (%)
+						<input type="text" data-flex-number data-path="battery.dod" placeholder="90 oder number.depth_of_discharge">
+					</label>
+
+					<label>
+						Maximum SOC (%)
+						<input type="text" data-flex-number data-path="battery.maximum_soc" placeholder="100 oder number.maximum_soc">
+					</label>
+
+					<label class="checkbox-row">
+						<input type="checkbox" data-path="battery.has_backup">
+						Backup Power verfügbar
+					</label>
+
+					<label>
+						Backup Minimum SOC (%)
+						<input type="text" data-flex-number data-path="battery.backup_minimum_soc" placeholder="15 oder number.backup_minimum_soc">
+					</label>
+
+					<label>
+						Backup DOD / Entladungstiefe (%)
+						<input type="text" data-flex-number data-path="battery.backup_dod" placeholder="85 oder number.backup_depth_of_discharge">
+					</label>
+				</div>
+
+				<div class="editor-card">
+					<div class="section-title">Load</div>
+
+					<label>
+						Load Entity
+						<ha-entity-picker
+							data-path="load.entity"
+							allow-custom-entity>
+						</ha-entity-picker>
+					</label>
+
+					<label>
+						Backup Load Entity
+						<ha-entity-picker
+							data-path="load.backup_entity"
+							allow-custom-entity>
+						</ha-entity-picker>
+					</label>
+
+					<label>
+						Grid Detection Entity
+						<ha-entity-picker
+							data-path="load.grid_detection_entity"
+							allow-custom-entity>
+						</ha-entity-picker>
+					</label>
+
+					<label>
+						Grid Detection Value
+						<input type="text" data-flex-number data-path="load.grid_detection_value" placeholder="1">
+					</label>
+				</div>
+
+				<div class="editor-card">
 					<div class="section-title">Wärmepumpe</div>
 				
 					<label>
@@ -6328,7 +6950,18 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 		
 			form.addEventListener("value-changed", (ev) => {
 				const config = this.cloneConfig(this._config);
-				config.entities = ev.detail.value.entities ?? {};
+				const nextEntities = ev.detail.value.entities ?? {};
+				const previousEntities = this._config.entities ?? {};
+				
+				if (!nextEntities.battery_power && previousEntities.battery_power) {
+					nextEntities.battery_power = previousEntities.battery_power;
+				}
+				
+				if (!nextEntities.battery_soc && previousEntities.battery_soc) {
+					nextEntities.battery_soc = previousEntities.battery_soc;
+				}
+				
+				config.entities = nextEntities;
 				this._config = config;
 		
 				this.dispatchEvent(
@@ -6348,6 +6981,21 @@ class AuriAgerFlowCardEditor extends HTMLElement {
     this.querySelector('[data-path="heatpump.mode"]').value = heatpumpMode;
 		this.querySelector('[data-path="wallbox.mode"]').value = wallboxMode;
     this.querySelector('[data-path="hide_zeros"]').checked = hideZeros;
+		this.querySelector('[data-path="grid.reverse_direction"]').checked = gridReverseDirection;
+		this.querySelector('[data-path="battery.entity"]').value = batteryPower;
+		this.querySelector('[data-path="battery.soc_entity"]').value = batterySoc;
+		this.querySelector('[data-path="battery.reverse_direction"]').checked = batteryReverseDirection;
+		this.querySelector('[data-path="battery.capacity"]').value = batteryCapacity;
+		this.querySelector('[data-path="battery.minimum_soc"]').value = batteryMinimumSoc;
+		this.querySelector('[data-path="battery.dod"]').value = batteryDod;
+		this.querySelector('[data-path="battery.maximum_soc"]').value = batteryMaximumSoc;
+		this.querySelector('[data-path="battery.has_backup"]').checked = batteryHasBackup;
+		this.querySelector('[data-path="battery.backup_minimum_soc"]').value = batteryBackupMinimumSoc;
+		this.querySelector('[data-path="battery.backup_dod"]').value = batteryBackupDod;
+		this.querySelector('[data-path="load.entity"]').value = loadEntity;
+		this.querySelector('[data-path="load.backup_entity"]').value = loadBackupEntity;
+		this.querySelector('[data-path="load.grid_detection_entity"]').value = loadGridDetectionEntity;
+		this.querySelector('[data-path="load.grid_detection_value"]').value = loadGridDetectionValue;
 
     this.querySelectorAll("select[data-path]").forEach((el) => {
       el.addEventListener("change", (ev) => {
@@ -6361,9 +7009,18 @@ class AuriAgerFlowCardEditor extends HTMLElement {
 		  });
 		});
 
-    this.querySelectorAll('input[type="text"][data-path]').forEach((el) => {
+    this.querySelectorAll('input[type="text"][data-path]:not([data-flex-number])').forEach((el) => {
       el.addEventListener("change", (ev) => {
         this.updateConfig(ev.target.dataset.path, ev.target.value);
+      });
+    });
+
+    this.querySelectorAll('input[data-flex-number][data-path]').forEach((el) => {
+      el.addEventListener("change", (ev) => {
+        this.updateConfig(
+					ev.target.dataset.path,
+					this.flexibleNumberOrEntity(ev.target.value)
+				);
       });
     });
 
@@ -6431,6 +7088,17 @@ class AuriAgerFlowCardEditor extends HTMLElement {
     return path.split(".").reduce((acc, key) => acc?.[key], obj);
   }
 
+	flexibleNumberOrEntity(value) {
+		const trimmed = String(value ?? "").trim();
+	
+		if (trimmed === "") {
+			return "";
+		}
+	
+		const numeric = Number(trimmed);
+		return Number.isFinite(numeric) ? numeric : trimmed;
+	}
+
   cloneConfig(config) {
     if (window.structuredClone) {
       return structuredClone(config);
@@ -6449,7 +7117,8 @@ window.customCards.push({
   name: "Auri Ager Flow",
   description: "Power Flow Dashboard Card",
   preview: true,
-});/* ==========================================================================
+});
+/* ==========================================================================
  * Auri Ager Summary
  * Source: auri-ager-summary-card(1).js
  * ========================================================================== */
@@ -6596,6 +7265,11 @@ class AuriAgerSummaryCard extends HTMLElement {
     return `${Math.round(value)}%`;
   }
 
+  clampPercent(value) {
+    if (!Number.isFinite(value)) return 0;
+    return Math.max(0, Math.min(100, value));
+  }
+
   fmtKg(value) {
     if (value >= 1000) {
       return `${(value / 1000).toFixed(2)} t`;
@@ -6656,10 +7330,10 @@ class AuriAgerSummaryCard extends HTMLElement {
 
     const selfConsumption = Math.max(0, production - feedIn);
     const autarkyPercent = consumption > 0
-      ? ((consumption - gridImport) / consumption) * 100
+      ? this.clampPercent(((consumption - gridImport) / consumption) * 100)
       : 0;
     const selfConsumptionPercent = production > 0
-      ? (selfConsumption / production) * 100
+      ? this.clampPercent((selfConsumption / production) * 100)
       : 0;
 
     const co2FactorKgPerKwh = factors.co2_kg_per_kwh ?? 0.42;

@@ -1,7 +1,7 @@
 {
-  "name": "Auri Ager Flow Card",
+  "name": "Auri Ager Framework",
   "render_readme": true,
   "country": "DE",
   "homeassistant": "2023.12.3",
-  "filename": "auri-ager-flow-card.js"
+  "filename": "auri-ager.js"
 }

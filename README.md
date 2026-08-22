@@ -4,29 +4,34 @@
 
 A calm, opinionated Home Assistant energy dashboard suite with a shared visual language.
 
-Current release: 1.0
-Status: Stable
+Current release: 1.2.0  
+Status: Stable  
 License: Apache 2.0
 
 Auri Ager is designed to show energy systems as quiet, readable instruments instead of noisy alarm panels. Motion indicates that energy is flowing. Values show how much energy is flowing.
 
 ## Included Cards
 
+The bundled framework file contains these cards:
+
 | Card | Type | Purpose |
-|-------|-------|----------|
-| Flow | `custom:auri-ager-flow-card` | Live energy flow and topology |
-| Summary | `custom:auri-ager-summary-card` | Energy balance and production summaries |
-| Finance | `custom:auri-ager-finance-card` | Savings, revenue and energy costs |
-| Gauge | `custom:auri-ager-gauge-card` | Compact KPI ring visualization |
-| Thermometer | `custom:auri-ager-thermometer-card` | Temperature and range visualization |
-| Progress | `custom:auri-ager-progress-card` | Linear KPI and capacity indicators |
-| Entities | `custom:auri-ager-entities-card` | Flexible multi-column entity display |
-| Value | `custom:auri-ager-value-card` | Single KPI display |
-| Micro Entity | `custom:auri-ager-micro-entity-card` | Small information tiles |
-| Camera | `custom:auri-ager-camera-card` | Camera and image display |
-| Markdown | `custom:auri-ager-markdown-card` | Headlines and formatted text content |
-| Status | `custom:auri-ager-status-card` | Compact system status display |
-| Sun | `custom:auri-ager-sun-card` | Sun position and daylight visualization |
+|---|---|---|
+| Flow | `custom:auri-ager-flow-card` | Live energy flow and current topology |
+| Summary | `custom:auri-ager-summary-card` | Energy balance for day, month, year or total |
+| Finance | `custom:auri-ager-finance-card` | Energy savings, costs and calculated balance |
+| Gauge | `custom:auri-ager-gauge-card` | Small percentage KPI gauge |
+| Sun | `custom:auri-ager-sun-card` | Sun position, elevation and daylight visualization |
+| Progress | `custom:auri-ager-progress-card` | Compact progress bar with configurable range |
+| Thermometer | `custom:auri-ager-thermometer-card` | Temperature gauge with optional fill-from-zero mode |
+| Entities | `custom:auri-ager-entities-card` | Tabular entity overview |
+| Entity Grid | `custom:auri-ager-entity-grid-card` | Compact grid for status and KPI tiles |
+| Load Breakdown | `custom:auri-ager-load-breakdown-card` | Load distribution overview |
+| Three Phase | `custom:auri-ager-three-phase-card` | Three-phase electrical values |
+| Switch | `custom:auri-ager-switch-card` | Switch-oriented control tile |
+| Value | `custom:auri-ager-value-card` | Single value display |
+| Control | `custom:auri-ager-control-card` | Entity and multi-entity control card |
+| Markdown | `custom:auri-ager-markdown-card` | Markdown text with Auri Ager styling |
+| Container | `custom:auri-ager-container-card` | Visual wrapper for nested Lovelace cards |
 
 ## Installation
 
@@ -51,8 +56,19 @@ Visual editors are included for:
 
 - `auri-ager-flow-card`
 - `auri-ager-sun-card`
-
-Summary, Finance and Gauge are intentionally documented through YAML examples. Their configuration is mostly entity mapping and is clearer when copied as period-specific examples.
+- `auri-ager-summary-card`
+- `auri-ager-finance-card`
+- `auri-ager-gauge-card`
+- `auri-ager-progress-card`
+- `auri-ager-thermometer-card`
+- `auri-ager-entities-card`
+- `auri-ager-entity-grid-card`
+- `auri-ager-load-breakdown-card`
+- `auri-ager-three-phase-card`
+- `auri-ager-switch-card`
+- `auri-ager-value-card`
+- `auri-ager-control-card`
+- `auri-ager-markdown-card`
 
 If a card is wrapped inside another card such as `custom:mod-card`, Home Assistant may show the editor for the wrapper instead of the Auri Ager card. To use the visual editor, edit the Auri Ager card directly.
 
@@ -70,12 +86,22 @@ entities:
   solar: sensor.pv_power
   external: sensor.sn_3019385095_pv_power_a
   grid: sensor.active_power
-  battery_power: sensor.h_power_battery_all
-  battery_soc: sensor.bat_soc_total
-  battery_runtime: sensor.pv_runtime
-  home: sensor.load
   wallbox: sensor.wallbox_power
   heatpump: sensor.heatpump_power
+battery:
+  entity: sensor.h_power_battery_all
+  soc_entity: sensor.bat_soc_total
+  capacity: 36.38
+  reverse_direction: false
+  maximum_soc: number.goodwe_max_soc
+  dod: number.goodwe_depth_of_discharge
+  has_backup: true
+  backup_dod: number.goodwe_depth_of_discharge_backup
+load:
+  entity: sensor.load
+  backup_entity: sensor.back_up_load
+  grid_detection_entity: sensor.grid_mode_code
+  grid_detection_value: 1
 external:
   mode: behind_home
   label: Zusatz-PV
@@ -92,14 +118,58 @@ heatpump:
 | `solar` | Main PV production, live power |
 | `external` | Optional additional source, live power |
 | `grid` | Grid power, live power |
-| `battery_power` | Battery charge/discharge power |
-| `battery_soc` | Battery state of charge |
-| `battery_runtime` | Optional runtime text, for example `hh:mm` |
-| `home` | Measured home or load power |
 | `wallbox` | Optional wallbox or EV charger power |
 | `heatpump` | Optional heat pump power |
 
 The Flow card calculates current autarky and current self-consumption internally. Separate `autarky` and `self_consumption` sensors are no longer required for the live card.
+
+## Battery Engine
+
+Flow can calculate battery runtime, charge time, backup energy and backup runtime internally from raw values.
+
+Preferred configuration:
+
+```yaml
+battery:
+  entity: sensor.battery_power
+  soc_entity: sensor.battery_soc
+  capacity: 36.38
+  maximum_soc: 100
+  minimum_soc: 10
+  has_backup: true
+  backup_minimum_soc: 15
+```
+
+`maximum_soc`, `minimum_soc` and `backup_minimum_soc` can be fixed numbers or Home Assistant entities.
+
+Some inverter integrations expose depth of discharge instead of minimum SOC. Use `dod` and `backup_dod` for those cases:
+
+```yaml
+battery:
+  entity: sensor.battery_power
+  soc_entity: sensor.battery_soc
+  capacity: 36.38
+  maximum_soc: number.goodwe_max_soc
+  dod: number.goodwe_depth_of_discharge
+  has_backup: true
+  backup_dod: number.goodwe_depth_of_discharge_backup
+```
+
+If both `minimum_soc` and `dod` are configured, `minimum_soc` wins because it is the direct target value. Legacy `battery.power`, `battery.soc`, `battery.backup_power`, `entities.battery_power` and `entities.battery_soc` remain supported for existing dashboards.
+
+## Load And Island Mode
+
+The optional `load` section lets Flow switch between normal load and backup load without a Home Assistant template sensor.
+
+```yaml
+load:
+  entity: sensor.load
+  backup_entity: sensor.back_up_load
+  grid_detection_entity: sensor.grid_mode_code
+  grid_detection_value: 1
+```
+
+If `grid_detection_entity` equals `grid_detection_value`, Flow uses `load.entity`. Otherwise it uses `load.backup_entity` and the central Autarky ring becomes an island mode status indicator.
 
 ## Power Direction Assumptions
 
@@ -109,6 +179,16 @@ The card currently assumes:
 - `battery_power < 0` = battery charging
 - `grid > 0` = export to grid
 - `grid < 0` = import from grid
+
+If your inverter reports the opposite sign convention, use:
+
+```yaml
+grid:
+  reverse_direction: true
+
+battery:
+  reverse_direction: true
+```
 
 ## External Source Modes
 
@@ -433,23 +513,10 @@ Auri Ager avoids visual panic. Animation remains calm. Values carry magnitude. O
 
 The target is a dashboard that still makes sense when a system has fewer sensors than the original development installation.
 
-## Framework Philosophy
-
-All cards share the same design language:
-
-- Consistent typography
-- Consistent spacing
-- Shared accent system
-- Shared theme handling
-- YAML-first configuration
-- Optional visual editors where practical
-
-Cards are designed to work together as a dashboard framework rather than as isolated components.
-
 ## License
 
 Apache License 2.0
 
-Built with care, iteration, visual tuning, field testing
-and an unreasonable amount of pixel-perfect discussions
-by Steffi and Auri ✨
+## Credits
+
+Built with care, iteration, visual tuning and a lot of field testing by Steffi and Auri ✨
